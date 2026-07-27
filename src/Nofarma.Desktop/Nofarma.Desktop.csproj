@@ -37,7 +37,7 @@
     package has not yet been restored.
   -->
   <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
-    <ProjectCapability Include="Msix"/>
+    <ProjectCapability Include="Msix" />
   </ItemGroup>
 
   <!--
@@ -52,6 +52,11 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Nofarma.Application\Nofarma.Application.csproj" />
+    <ProjectReference Include="..\Nofarma.Infrastructure\Nofarma.Infrastructure.csproj" />
+    <ProjectReference Include="..\Nofarma.Contracts\Nofarma.Contracts.csproj" />
   </ItemGroup>
 
   <!--

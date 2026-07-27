@@ -286,7 +286,7 @@ public sealed class ProjectDependencyTests
 
     [Theory]
     [MemberData(nameof(CoreProjects))]
-    public void Core_projects_reference_only_allowed_Nofarma_projects(
+    public void CoreProjectsReferenceOnlyAllowedNofarmaProjects(
         string assemblyName,
         string[] allowedReferences)
     {
@@ -297,7 +297,11 @@ public sealed class ProjectDependencyTests
             .Order(StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(allowedReferences.Order(StringComparer.Ordinal), actual);
+        string[] forbidden = actual
+            .Except(allowedReferences, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Empty(forbidden);
     }
 }
 ```

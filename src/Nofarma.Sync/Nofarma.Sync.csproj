@@ -10,4 +10,10 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nofarma.Application\Nofarma.Application.csproj" />
+    <ProjectReference Include="..\Nofarma.Infrastructure\Nofarma.Infrastructure.csproj" />
+    <ProjectReference Include="..\Nofarma.Contracts\Nofarma.Contracts.csproj" />
+  </ItemGroup>
 </Project>
