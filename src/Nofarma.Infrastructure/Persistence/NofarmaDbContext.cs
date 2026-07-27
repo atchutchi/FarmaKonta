@@ -22,8 +22,34 @@ public sealed class NofarmaDbContext(DbContextOptions<NofarmaDbContext> options)
 
     public DbSet<AuditEventRecord> AuditEvents => Set<AuditEventRecord>();
 
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        EnsureAuditEventsAreAppendOnly();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuditEventsAreAppendOnly();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(NofarmaDbContext).Assembly);
+    }
+
+    private void EnsureAuditEventsAreAppendOnly()
+    {
+        bool hasMutation = ChangeTracker
+            .Entries<AuditEventRecord>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted);
+
+        if (hasMutation)
+        {
+            throw new InvalidOperationException("Audit events are append-only.");
+        }
     }
 }
