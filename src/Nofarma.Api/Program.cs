@@ -1,32 +1,25 @@
-var builder = WebApplication.CreateBuilder(args);
+using System.Reflection;
+using Nofarma.Api.Composition;
+using Nofarma.Application.Abstractions;
+using Nofarma.Contracts.Diagnostics;
 
-// Add services to the container.
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+builder.Services.AddNofarmaFoundation();
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
-// Configure the HTTP request pipeline.
-
-var summaries = new[]
+app.MapGet("/health/live", (IUtcClock clock) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
+    string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0.0";
+    return Results.Ok(new HealthResponse(
+        "Nofarma.Api",
+        "Healthy",
+        version,
+        clock.GetCurrentInstant().Value));
 });
 
 app.Run();
 
-sealed record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
+public partial class Program
 {
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
 }

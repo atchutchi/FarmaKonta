@@ -674,12 +674,16 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
-    public async Task Live_returns_service_identity()
+    public async Task LiveReturnsServiceIdentity()
     {
-        HttpResponseMessage response = await _client.GetAsync("/health/live");
-        HealthResponse? body = await response.Content.ReadFromJsonAsync<HealthResponse>();
+        using HttpResponseMessage response = await _client.GetAsync(
+            "/health/live",
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        HealthResponse? body = await response.Content.ReadFromJsonAsync<HealthResponse>(
+            TestContext.Current.CancellationToken);
         Assert.NotNull(body);
         Assert.Equal("Nofarma.Api", body.Service);
         Assert.Equal("Healthy", body.Status);
