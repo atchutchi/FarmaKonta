@@ -158,10 +158,14 @@ Expected: `WinUI Blank App` da Microsoft aparece com short name `winui`.
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
+    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.3.1" />
     <PackageVersion Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
 </Project>
 ```
@@ -199,7 +203,7 @@ dotnet new classlib -n Nofarma.Infrastructure -o src/Nofarma.Infrastructure -f n
 dotnet new webapi -n Nofarma.Api -o src/Nofarma.Api -f net10.0 --no-openapi --no-https
 dotnet new blazor -n Nofarma.AdminWeb -o src/Nofarma.AdminWeb -f net10.0 --interactivity Server --no-https
 dotnet new worker -n Nofarma.Sync -o src/Nofarma.Sync -f net10.0
-dotnet new winui -n Nofarma.Desktop -o src/Nofarma.Desktop
+dotnet new winui -n Nofarma.Desktop -o src/Nofarma.Desktop -tfm net10.0 -tpmv 10.0.19041.0 -w 2.3.1
 dotnet new xunit -n Nofarma.UnitTests -o tests/Nofarma.UnitTests -f net10.0
 dotnet new xunit -n Nofarma.IntegrationTests -o tests/Nofarma.IntegrationTests -f net10.0
 dotnet new xunit -n Nofarma.ArchitectureTests -o tests/Nofarma.ArchitectureTests -f net10.0
@@ -216,6 +220,10 @@ Cada projecto de testes contém:
 <ItemGroup>
   <PackageReference Include="Microsoft.NET.Test.Sdk" />
   <PackageReference Include="xunit.v3" />
+  <PackageReference Include="xunit.runner.visualstudio">
+    <PrivateAssets>all</PrivateAssets>
+    <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+  </PackageReference>
 </ItemGroup>
 ```
 

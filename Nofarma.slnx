@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Nofarma.AdminWeb/Nofarma.AdminWeb.csproj" />
+    <Project Path="src/Nofarma.Api/Nofarma.Api.csproj" />
+    <Project Path="src/Nofarma.Application/Nofarma.Application.csproj" />
+    <Project Path="src/Nofarma.Contracts/Nofarma.Contracts.csproj" />
+    <Project Path="src/Nofarma.Desktop/Nofarma.Desktop.csproj" />
+    <Project Path="src/Nofarma.Domain/Nofarma.Domain.csproj" />
+    <Project Path="src/Nofarma.Infrastructure/Nofarma.Infrastructure.csproj" />
+    <Project Path="src/Nofarma.Sync/Nofarma.Sync.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Nofarma.ArchitectureTests/Nofarma.ArchitectureTests.csproj" />
+    <Project Path="tests/Nofarma.IntegrationTests/Nofarma.IntegrationTests.csproj" />
+    <Project Path="tests/Nofarma.UnitTests/Nofarma.UnitTests.csproj" />
+  </Folder>
+</Solution>
