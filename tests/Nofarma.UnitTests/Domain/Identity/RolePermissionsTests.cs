@@ -10,7 +10,12 @@ public sealed class RolePermissionsTests
         Capability.ManagePermissions,
         Capability.ConfigureFiscalSettings,
         Capability.ViewPurchasePrices,
-        Capability.ManageBackups
+        Capability.ManageBackups,
+        Capability.ViewSuppliers,
+        Capability.ViewPurchases,
+        Capability.ImportInventory,
+        Capability.AdjustStock,
+        Capability.CompensateStock
     };
 
     [Theory]
@@ -34,6 +39,41 @@ public sealed class RolePermissionsTests
     public void SupportRoleHasNoPermanentPermissions()
     {
         Assert.Empty(RolePermissions.GetPermissions(UserRole.AbiptomSupport));
+    }
+
+    [Theory]
+    [InlineData(Capability.ViewSuppliers)]
+    [InlineData(Capability.ViewPurchases)]
+    [InlineData(Capability.ImportInventory)]
+    [InlineData(Capability.AdjustStock)]
+    [InlineData(Capability.CompensateStock)]
+    public void CashierIsDeniedInventoryAdministration(Capability capability)
+    {
+        Assert.False(RolePermissions.IsAllowed(UserRole.Cashier, capability));
+    }
+
+    [Theory]
+    [InlineData(Capability.ViewSuppliers)]
+    [InlineData(Capability.ViewPurchases)]
+    public void AuditorCanReadSupplyHistory(Capability capability)
+    {
+        Assert.True(RolePermissions.IsAllowed(UserRole.Auditor, capability));
+    }
+
+    [Theory]
+    [InlineData(Capability.ImportInventory)]
+    [InlineData(Capability.AdjustStock)]
+    public void StockManagerCanOperateInventory(Capability capability)
+    {
+        Assert.True(RolePermissions.IsAllowed(UserRole.StockManager, capability));
+    }
+
+    [Fact]
+    public void StockManagerCannotCompensateConfirmedMovementByDefault()
+    {
+        Assert.False(RolePermissions.IsAllowed(
+            UserRole.StockManager,
+            Capability.CompensateStock));
     }
 
     [Fact]

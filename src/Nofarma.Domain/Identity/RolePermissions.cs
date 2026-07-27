@@ -25,7 +25,12 @@ public static class RolePermissions
             Capability.ManagePermissions,
             Capability.ConfigurePharmacy,
             Capability.ConfigureFiscalSettings,
-            Capability.ManageBackups
+            Capability.ManageBackups,
+            Capability.ViewSuppliers,
+            Capability.ViewPurchases,
+            Capability.ImportInventory,
+            Capability.AdjustStock,
+            Capability.CompensateStock
         }.ToFrozenSet();
 
     private static readonly FrozenDictionary<UserRole, FrozenSet<Capability>> Matrix =
@@ -47,7 +52,9 @@ public static class RolePermissions
                 Capability.ManageSuppliers,
                 Capability.ViewReports,
                 Capability.ViewAudit,
-                Capability.ManageUsers),
+                Capability.ManageUsers,
+                Capability.ViewSuppliers,
+                Capability.ViewPurchases),
             [UserRole.Pharmacist] = Set(
                 Capability.SignIn,
                 Capability.LockOwnSession,
@@ -66,7 +73,11 @@ public static class RolePermissions
                 Capability.ViewPurchasePrices,
                 Capability.ManagePurchases,
                 Capability.ManageSuppliers,
-                Capability.ViewReports),
+                Capability.ViewReports,
+                Capability.ViewSuppliers,
+                Capability.ViewPurchases,
+                Capability.ImportInventory,
+                Capability.AdjustStock),
             [UserRole.Cashier] = Set(
                 Capability.SignIn,
                 Capability.LockOwnSession,
@@ -82,7 +93,9 @@ public static class RolePermissions
                 Capability.ViewProducts,
                 Capability.ViewStock,
                 Capability.ViewReports,
-                Capability.ViewAudit),
+                Capability.ViewAudit,
+                Capability.ViewSuppliers,
+                Capability.ViewPurchases),
             [UserRole.AbiptomSupport] = FrozenSet<Capability>.Empty
         }.ToFrozenDictionary();
 

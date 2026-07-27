@@ -20,5 +20,10 @@ public enum Capability
     ManagePermissions = 16,
     ConfigurePharmacy = 17,
     ConfigureFiscalSettings = 18,
-    ManageBackups = 19
+    ManageBackups = 19,
+    ViewSuppliers = 20,
+    ViewPurchases = 21,
+    ImportInventory = 22,
+    AdjustStock = 23,
+    CompensateStock = 24
 }
