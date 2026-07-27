@@ -4,6 +4,8 @@
 
 **Goal:** Entregar uma aplicação Windows funcional que configure uma farmácia, crie o administrador principal, gere recuperação offline, autentique utilizadores, aplique permissões e mantenha auditoria local em SQLite.
 
+**Estado de execução em 27 de Julho de 2026:** Tasks 1 a 11 implementadas no ramo `agent/nofarma-local-identity`. O percurso automatizado cobre configuração, autenticação, bloqueio, recuperação, autorização, gestão de utilizadores, migrações e arranque. O assistente foi inspeccionado na aplicação Windows real. O percurso manual completo com credenciais deve ser repetido pelo utilizador antes de distribuir o instalador.
+
 **Architecture:** O domínio mantém regras sem dependências externas. A camada de aplicação expõe casos de uso e contratos. A infraestrutura usa Entity Framework Core com SQLite, PBKDF2 para credenciais e DPAPI para proteger o pepper fora da base de dados. A aplicação WinUI usa injecção de dependências, view models pequenos e páginas que seguem obrigatoriamente o atlas em `docs/design/previews`.
 
 **Tech Stack:** C# 14, .NET 10.0.302, WinUI 3, Windows App SDK 2.3.1, Entity Framework Core 10.0.10, SQLite, Windows DPAPI, xUnit v3 e GitHub Actions.
