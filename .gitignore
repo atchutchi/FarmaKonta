@@ -1,0 +1,66 @@
+# Configuração local e segredos
+.env
+.env.*
+!.env.example
+secrets/
+**/secrets/
+*.pfx
+*.p12
+*.snk
+*.key
+*.pem
+appsettings.Local.json
+appsettings.*.Local.json
+**/appsettings.Development.local.json
+
+# Dados operacionais e cópias de segurança
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+backups/
+exports/
+data/
+runtime-data/
+*.bak
+*.dump
+
+# .NET e Visual Studio
+bin/
+obj/
+.vs/
+TestResults/
+artifacts/
+coverage/
+*.user
+*.suo
+*.nupkg
+
+# Web
+node_modules/
+dist/
+.next/
+wwwroot/_framework/
+
+# Docker local
+docker-compose.override.yml
+compose.override.yml
+
+# Postman local
+postman/environments/*.local.json
+postman/*.local.json
+
+# Ferramentas de desenho e ficheiros temporários
+.superpowers/
+.impeccable/live/
+tmp/
+temp/
+*.log
+
+# Sistema operativo e editores
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*.local.json
