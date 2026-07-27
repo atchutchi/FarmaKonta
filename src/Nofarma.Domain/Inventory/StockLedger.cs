@@ -82,6 +82,28 @@ public static class StockLedger
         return new StockMovement(operation, resultingBalance, original.Id);
     }
 
+    public static StockMovement Compensate(
+        StockOperation originalOperation,
+        long originalResultingLotBalance,
+        EntityId movementId,
+        EntityId userId,
+        string reason,
+        string idempotencyKey,
+        UtcInstant occurredUtc,
+        long currentLotBalance)
+    {
+        ArgumentNullException.ThrowIfNull(originalOperation);
+        var original = new StockMovement(originalOperation, originalResultingLotBalance);
+        return Compensate(
+            original,
+            movementId,
+            userId,
+            reason,
+            idempotencyKey,
+            occurredUtc,
+            currentLotBalance);
+    }
+
     private static void ValidateOperation(
         StockOperation operation,
         long currentLotBalance,

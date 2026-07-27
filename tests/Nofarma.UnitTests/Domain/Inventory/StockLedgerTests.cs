@@ -157,6 +157,28 @@ public sealed class StockLedgerTests
         Assert.Equal(3, compensation.ResultingLotBalance);
     }
 
+    [Fact]
+    public void PersistedOperationCanBeCompensatedWithoutChangingItsIdentity()
+    {
+        StockOperation original = CreateOperation(
+            StockMovementType.PositiveAdjustment,
+            7,
+            "Contagem inicial corrigida");
+
+        StockMovement compensation = StockLedger.Compensate(
+            original,
+            originalResultingLotBalance: 10,
+            EntityId.New(),
+            EntityId.New(),
+            "Produto errado",
+            "compensation:persisted:42",
+            AtUtc(2026, 7, 28),
+            currentLotBalance: 10);
+
+        Assert.Equal(original.MovementId, compensation.CompensatesMovementId);
+        Assert.Equal(-7, compensation.QuantityBase);
+    }
+
     private static StockOperation CreateOperation(
         StockMovementType type,
         long quantityBase,
