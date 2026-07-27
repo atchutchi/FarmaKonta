@@ -82,6 +82,38 @@ public sealed class LocalUser
             isPrimaryAdministrator: false,
             createdAtUtc);
 
+    public static LocalUser Restore(
+        EntityId id,
+        string displayName,
+        string loginName,
+        UserRole role,
+        CredentialKind credentialKind,
+        bool isPrimaryAdministrator,
+        UtcInstant createdAtUtc,
+        UserStatus status,
+        int failedLoginCount,
+        UtcInstant? lockedUntilUtc,
+        UtcInstant? lastSuccessfulLoginUtc)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(failedLoginCount);
+
+        var user = new LocalUser(
+            id,
+            displayName,
+            loginName,
+            role,
+            credentialKind,
+            isPrimaryAdministrator,
+            createdAtUtc)
+        {
+            Status = status,
+            FailedLoginCount = failedLoginCount,
+            LockedUntilUtc = lockedUntilUtc,
+            LastSuccessfulLoginUtc = lastSuccessfulLoginUtc,
+        };
+        return user;
+    }
+
     public bool IsLockedAt(UtcInstant instant) =>
         LockedUntilUtc is { } lockedUntil && lockedUntil.Value > instant.Value;
 

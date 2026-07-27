@@ -14,7 +14,10 @@ public sealed class RecoveryCodeConfiguration : IEntityTypeConfiguration<Recover
         builder.Property(record => record.Salt).IsRequired();
         builder.Property(record => record.Hash).IsRequired();
         builder.Property(record => record.CreatedAtUtc).IsRequired();
-        builder.HasIndex(record => new { record.UserId, record.UsedAtUtc });
+        builder.HasIndex(record => record.UserId)
+            .IsUnique()
+            .HasFilter("\"UsedAtUtc\" IS NULL")
+            .HasDatabaseName("IX_RecoveryCodes_OneActivePerUser");
 
         builder.HasOne<LocalUserRecord>()
             .WithMany()
