@@ -8,7 +8,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - nofarma-postgres:/var/lib/postgresql/data
+      - nofarma-postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nofarma -d nofarma"]
       interval: 5s
