@@ -12,6 +12,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<MainWindow>();
         services.AddSingleton<NavigationService>();
         services.AddTransient<SetupWizardViewModel>();
+        services.AddTransient<LoginViewModel>();
+        services.AddTransient<UsersViewModel>();
         return services;
     }
 }

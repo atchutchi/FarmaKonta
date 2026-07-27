@@ -35,7 +35,10 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<SqliteLocalAuthenticationStore>());
         services.AddSingleton<ILocalRecoveryStore>(provider =>
             provider.GetRequiredService<SqliteLocalAuthenticationStore>());
+        services.AddSingleton<ILocalProfileStore>(provider =>
+            provider.GetRequiredService<SqliteLocalAuthenticationStore>());
         services.AddSingleton<ILocalUserAdministrationStore, SqliteUserAdministrationStore>();
+        services.AddSingleton<ILocalApplicationInfoStore, SqliteLocalApplicationInfoStore>();
         services.AddSingleton<ICredentialPepperStore>(
             new WindowsCredentialPepperStore(secretsDirectory));
         services.AddSingleton<ICredentialHasher, Pbkdf2CredentialHasher>();

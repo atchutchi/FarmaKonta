@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Nofarma.Desktop.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{StaticResource NofarmaCanvasBrush}"
+    Loaded="OnLoaded">
+    <ScrollViewer>
+        <StackPanel Margin="24" Spacing="16">
+            <TextBlock Style="{StaticResource NofarmaHeadingStyle}" Text="Configurações" />
+            <Grid ColumnSpacing="18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Padding="20" Background="White" BorderBrush="{StaticResource NofarmaBorderBrush}" BorderThickness="1" CornerRadius="8">
+                    <StackPanel Spacing="9">
+                        <TextBlock FontSize="19" FontWeight="SemiBold" Text="Farmácia" />
+                        <TextBlock Text="Nome" />
+                        <TextBox x:Name="PharmacyNameBox" IsReadOnly="True" Style="{StaticResource NofarmaFieldStyle}" />
+                        <TextBlock Text="NIF" />
+                        <TextBox x:Name="TaxIdentifierBox" IsReadOnly="True" Style="{StaticResource NofarmaFieldStyle}" />
+                        <TextBlock Text="Endereço" />
+                        <TextBox x:Name="AddressBox" IsReadOnly="True" Style="{StaticResource NofarmaFieldStyle}" />
+                        <TextBlock Text="Contacto" />
+                        <TextBox x:Name="ContactBox" IsReadOnly="True" Style="{StaticResource NofarmaFieldStyle}" />
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Padding="20" Background="White" BorderBrush="{StaticResource NofarmaBorderBrush}" BorderThickness="1" CornerRadius="8">
+                    <StackPanel Spacing="9">
+                        <TextBlock FontSize="19" FontWeight="SemiBold" Text="Integração DGCI" />
+                        <InfoBar
+                            IsOpen="True"
+                            IsClosable="False"
+                            Severity="Warning"
+                            Message="A autorização e a relação com a DGCI são responsabilidade da farmácia. O NôFarma não envia dados fiscais sem configuração válida." />
+                        <TextBlock Text="URL de testes" />
+                        <TextBox x:Name="DgciTestUrlBox" PlaceholderText="Não configurada" Style="{StaticResource NofarmaFieldStyle}" />
+                        <TextBlock Text="URL de produção" />
+                        <TextBox x:Name="DgciProductionUrlBox" PlaceholderText="Não configurada" Style="{StaticResource NofarmaFieldStyle}" />
+                        <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="As URLs ficam vazias até a farmácia fornecer os endereços oficiais." TextWrapping="Wrap" />
+                        <Button Click="OnSaveFiscalSettings" Content="Guardar configuração local" Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                        <InfoBar x:Name="SettingsMessageBar" IsClosable="True" IsOpen="False" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

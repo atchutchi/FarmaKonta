@@ -12,6 +12,31 @@ namespace Nofarma.Infrastructure.Persistence;
 public sealed class SqliteUserAdministrationStore(
     DbContextOptions<NofarmaDbContext> options) : ILocalUserAdministrationStore
 {
+    public async Task<IReadOnlyList<ManagedUserSummary>> ListUsersAsync(
+        EntityId pharmacyId,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new NofarmaDbContext(options);
+        LocalUserRecord[] records = await context.LocalUsers
+            .AsNoTracking()
+            .Where(record => record.PharmacyId == pharmacyId.Value)
+            .OrderByDescending(record => record.IsPrimaryAdministrator)
+            .ThenBy(record => record.DisplayName)
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return records.Select(record => new ManagedUserSummary(
+            new EntityId(record.Id),
+            record.DisplayName,
+            record.LoginName,
+            (UserRole)record.Role,
+            (CredentialKind)record.CredentialKind,
+            (UserStatus)record.Status,
+            record.FailedLoginCount,
+            record.LockedUntilUtc is { } locked ? UtcInstant.From(locked) : null,
+            record.LastSuccessfulLoginUtc is { } last ? UtcInstant.From(last) : null,
+            record.IsPrimaryAdministrator)).ToArray();
+    }
+
     public async Task<UserAdministrationContext?> GetContextAsync(
         EntityId actorUserId,
         CancellationToken cancellationToken)

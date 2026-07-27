@@ -5,6 +5,7 @@ using Nofarma.Application.Identity;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Setup;
 using Nofarma.Domain.Common;
+using Nofarma.Domain.Identity;
 using Nofarma.Infrastructure.Persistence;
 
 namespace Nofarma.IntegrationTests.LocalIdentity;
@@ -36,6 +37,12 @@ public sealed class AuthenticationFlowTests : IAsyncLifetime
             new FixedCodeGenerator("OLD2-CODE-3456-789A-BCDE"),
             clock);
         await setup.ConfigureAsync(ValidRequest(), cancellationToken);
+
+        IReadOnlyList<LocalProfile> profiles = await authenticationStore
+            .ListProfilesAsync(cancellationToken);
+        LocalProfile profile = Assert.Single(profiles);
+        Assert.Equal("Administrador", profile.DisplayName);
+        Assert.Equal(UserRole.Administrator, profile.Role);
 
         var currentSession = new CurrentSession();
         var authentication = new AuthenticationService(

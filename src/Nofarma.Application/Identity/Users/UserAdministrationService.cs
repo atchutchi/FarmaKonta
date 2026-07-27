@@ -13,6 +13,17 @@ public sealed class UserAdministrationService(
     ICredentialHasher credentialHasher,
     IUtcClock clock)
 {
+    public async Task<IReadOnlyList<ManagedUserSummary>> ListAsync(
+        LocalSession actor,
+        CancellationToken cancellationToken)
+    {
+        authorization.EnsureAllowed(actor, Capability.ManageUsers);
+        UserAdministrationContext context = await GetContextAsync(actor, cancellationToken)
+            .ConfigureAwait(false);
+        return await store.ListUsersAsync(context.PharmacyId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task<EntityId> CreateAsync(
         LocalSession actor,
         CreateUserRequest request,

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Nofarma.Desktop.Views.AppShellPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{StaticResource NofarmaCanvasBrush}"
+    Loaded="OnLoaded">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="210" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="56" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="30" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.RowSpan="3" Background="#003D73">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="56" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="30" />
+            </Grid.RowDefinitions>
+            <TextBlock
+                Margin="18,0"
+                VerticalAlignment="Center"
+                FontFamily="Segoe UI Variable Display"
+                FontSize="25"
+                FontWeight="Bold"
+                Foreground="White"
+                Text="NôFarma" />
+            <ScrollViewer Grid.Row="1">
+                <StackPanel x:Name="NavigationButtons" Padding="8,10" Spacing="3">
+                    <Button Tag="Painel" Click="OnNavigate" Content="Painel" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button Tag="Vendas" Click="OnNavigate" Content="Vendas" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button Tag="Facturas" Click="OnNavigate" Content="Facturas" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button Tag="Produtos" Click="OnNavigate" Content="Produtos" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button Tag="Stock" Click="OnNavigate" Content="Stock" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button Tag="Compras" Click="OnNavigate" Content="Compras" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button Tag="Fornecedores" Click="OnNavigate" Content="Fornecedores" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button Tag="Caixa" Click="OnNavigate" Content="Caixa" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button Tag="Relatórios" Click="OnNavigate" Content="Relatórios" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button x:Name="AuditButton" Tag="Auditoria" Click="OnNavigate" Content="Auditoria" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button x:Name="UsersButton" Tag="Utilizadores" Click="OnNavigate" Content="Utilizadores" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button x:Name="SettingsButton" Tag="Configurações" Click="OnNavigate" Content="Configurações" Style="{StaticResource ShellNavigationButtonStyle}" />
+                </StackPanel>
+            </ScrollViewer>
+            <TextBlock Grid.Row="2" Margin="14,0" VerticalAlignment="Center" FontSize="11" Foreground="#D7E8F8" Text="Base de dados local" />
+        </Grid>
+
+        <Grid
+            Grid.Column="1"
+            Padding="18,0"
+            Background="#064D8D">
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <TextBlock x:Name="PharmacyNameText" FontWeight="SemiBold" Foreground="White" />
+                <TextBlock Foreground="#A8C9E8" Text="|" />
+                <TextBlock x:Name="CurrentUserText" Foreground="White" />
+                <TextBlock Foreground="#A8C9E8" Text="|" />
+                <TextBlock Foreground="#FFE082" Text="● Sem internet" />
+                <TextBlock Foreground="White" Text="Dados locais" />
+                <TextBlock Foreground="#FFE082" Text="Activação pendente" />
+            </StackPanel>
+            <Button
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Click="OnSignOut"
+                Content="Terminar sessão" />
+        </Grid>
+
+        <ContentPresenter x:Name="ModuleContent" Grid.Row="1" Grid.Column="1" />
+
+        <Grid
+            Grid.Row="2"
+            Grid.Column="1"
+            Padding="14,0"
+            Background="White"
+            BorderBrush="{StaticResource NofarmaBorderBrush}"
+            BorderThickness="0,1,0,0">
+            <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource NofarmaMutedBrush}" Text="NôFarma local | Sem sincronização configurada" />
+        </Grid>
+    </Grid>
+</Page>

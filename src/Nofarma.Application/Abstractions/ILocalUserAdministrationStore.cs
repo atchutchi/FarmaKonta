@@ -12,6 +12,10 @@ public interface ILocalUserAdministrationStore
         EntityId actorUserId,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<ManagedUserSummary>> ListUsersAsync(
+        EntityId pharmacyId,
+        CancellationToken cancellationToken);
+
     Task<bool> LoginExistsAsync(
         EntityId pharmacyId,
         string normalizedLogin,

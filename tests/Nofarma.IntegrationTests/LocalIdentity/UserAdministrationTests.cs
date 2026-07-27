@@ -57,6 +57,12 @@ public sealed class UserAdministrationTests : IAsyncLifetime
             new CreateUserRequest("Caixa Um", "caixa1", UserRole.Cashier, "1234"),
             cancellationToken);
 
+        IReadOnlyList<ManagedUserSummary> listedUsers = await users.ListAsync(
+            administrator,
+            cancellationToken);
+        Assert.Equal(2, listedUsers.Count);
+        Assert.Contains(listedUsers, user => user.Id == cashierId && user.CredentialKind == CredentialKind.Pin);
+
         await Assert.ThrowsAsync<InvalidOperationException>(() => users.CreateAsync(
             administrator,
             new CreateUserRequest("Duplicado", "CAIXA1", UserRole.Cashier, "5678"),

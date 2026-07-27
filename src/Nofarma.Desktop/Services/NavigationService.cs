@@ -24,6 +24,8 @@ public sealed class NavigationService
 
     public void NavigateToLogin() => Navigate(typeof(LoginPage));
 
+    public void NavigateToShell() => Navigate(typeof(AppShellPage));
+
     private void Navigate(Type pageType)
     {
         if (_frame is null)

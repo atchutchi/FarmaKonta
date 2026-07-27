@@ -11,8 +11,31 @@ namespace Nofarma.Infrastructure.Persistence;
 
 public sealed class SqliteLocalAuthenticationStore(
     DbContextOptions<NofarmaDbContext> options)
-    : ILocalAuthenticationStore, ILocalRecoveryStore
+    : ILocalAuthenticationStore, ILocalRecoveryStore, ILocalProfileStore
 {
+    public async Task<IReadOnlyList<LocalProfile>> ListProfilesAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var context = new NofarmaDbContext(options);
+        LocalUserRecord[] records = await context.LocalUsers
+            .AsNoTracking()
+            .OrderBy(record => record.DisplayName)
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return records
+            .Select(record => new LocalProfile(
+                new EntityId(record.Id),
+                record.DisplayName,
+                record.LoginName,
+                (UserRole)record.Role,
+                (CredentialKind)record.CredentialKind,
+                (UserStatus)record.Status,
+                record.LockedUntilUtc is { } locked
+                    ? UtcInstant.From(locked)
+                    : null))
+            .ToArray();
+    }
+
     public async Task<AuthenticationIdentity?> FindByLoginAsync(
         string normalizedLogin,
         CancellationToken cancellationToken)
