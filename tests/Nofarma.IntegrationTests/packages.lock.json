@@ -459,7 +459,8 @@
         "dependencies": {
           "Nofarma.Application": "[1.0.0, )",
           "Nofarma.Contracts": "[1.0.0, )",
-          "Nofarma.Domain": "[1.0.0, )"
+          "Nofarma.Domain": "[1.0.0, )",
+          "System.Security.Cryptography.ProtectedData": "[10.0.10, )"
         }
       },
       "Microsoft.Extensions.Hosting": {
@@ -491,6 +492,12 @@
           "Microsoft.Extensions.Logging.EventSource": "10.0.10",
           "Microsoft.Extensions.Options": "10.0.10"
         }
+      },
+      "System.Security.Cryptography.ProtectedData": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.10, )",
+        "resolved": "10.0.10",
+        "contentHash": "BKt0SQgq2lq3ESE68jkeLwv95ypANrPDtkTOIFGcnhg2aRUeUUBDrQlkVDZctrg1WenVcvn5P5XZnuYI7q6rFQ=="
       }
     }
   }
