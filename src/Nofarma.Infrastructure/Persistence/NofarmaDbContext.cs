@@ -22,9 +22,37 @@ public sealed class NofarmaDbContext(DbContextOptions<NofarmaDbContext> options)
 
     public DbSet<AuditEventRecord> AuditEvents => Set<AuditEventRecord>();
 
+    public DbSet<ProductCategoryRecord> ProductCategories => Set<ProductCategoryRecord>();
+
+    public DbSet<ProductRecord> Products => Set<ProductRecord>();
+
+    public DbSet<ProductPackageRecord> ProductPackages => Set<ProductPackageRecord>();
+
+    public DbSet<ProductBarcodeRecord> ProductBarcodes => Set<ProductBarcodeRecord>();
+
+    public DbSet<SupplierRecord> Suppliers => Set<SupplierRecord>();
+
+    public DbSet<PurchaseOrderRecord> PurchaseOrders => Set<PurchaseOrderRecord>();
+
+    public DbSet<PurchaseOrderLineRecord> PurchaseOrderLines => Set<PurchaseOrderLineRecord>();
+
+    public DbSet<GoodsReceiptRecord> GoodsReceipts => Set<GoodsReceiptRecord>();
+
+    public DbSet<GoodsReceiptLineRecord> GoodsReceiptLines => Set<GoodsReceiptLineRecord>();
+
+    public DbSet<StockLotRecord> StockLots => Set<StockLotRecord>();
+
+    public DbSet<StockMovementRecord> StockMovements => Set<StockMovementRecord>();
+
+    public DbSet<InventoryImportRecord> InventoryImports => Set<InventoryImportRecord>();
+
+    public DbSet<InventoryImportRowRecord> InventoryImportRows => Set<InventoryImportRowRecord>();
+
+    public DbSet<InventoryImportErrorRecord> InventoryImportErrors => Set<InventoryImportErrorRecord>();
+
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
-        EnsureAuditEventsAreAppendOnly();
+        EnsureAppendOnlyRecords();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -32,7 +60,7 @@ public sealed class NofarmaDbContext(DbContextOptions<NofarmaDbContext> options)
         bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
-        EnsureAuditEventsAreAppendOnly();
+        EnsureAppendOnlyRecords();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -41,15 +69,22 @@ public sealed class NofarmaDbContext(DbContextOptions<NofarmaDbContext> options)
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(NofarmaDbContext).Assembly);
     }
 
-    private void EnsureAuditEventsAreAppendOnly()
+    private void EnsureAppendOnlyRecords()
     {
-        bool hasMutation = ChangeTracker
+        bool hasAuditMutation = ChangeTracker
             .Entries<AuditEventRecord>()
             .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted);
-
-        if (hasMutation)
+        if (hasAuditMutation)
         {
             throw new InvalidOperationException("Audit events are append-only.");
+        }
+
+        bool hasStockMovementMutation = ChangeTracker
+            .Entries<StockMovementRecord>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted);
+        if (hasStockMovementMutation)
+        {
+            throw new InvalidOperationException("Stock movements are append-only.");
         }
     }
 }
