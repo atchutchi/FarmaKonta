@@ -20,4 +20,8 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Nofarma.Domain\Nofarma.Domain.csproj" />
+  </ItemGroup>
+
 </Project>

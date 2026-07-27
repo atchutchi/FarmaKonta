@@ -379,7 +379,7 @@ namespace Nofarma.UnitTests.Domain.Common;
 public sealed class MoneyTests
 {
     [Fact]
-    public void Xof_preserves_integer_amount()
+    public void XofPreservesIntegerAmount()
     {
         Money money = Money.Xof(6_250);
 
@@ -388,7 +388,7 @@ public sealed class MoneyTests
     }
 
     [Fact]
-    public void Add_rejects_different_currency()
+    public void AddRejectsDifferentCurrency()
     {
         Money xof = Money.Xof(100);
         Money other = new(100, "EUR");
@@ -397,7 +397,7 @@ public sealed class MoneyTests
     }
 
     [Fact]
-    public void Add_uses_checked_integer_arithmetic()
+    public void AddUsesCheckedIntegerArithmetic()
     {
         Money maximum = Money.Xof(long.MaxValue);
 
@@ -416,7 +416,7 @@ namespace Nofarma.UnitTests.Domain.Common;
 public sealed class EntityIdTests
 {
     [Fact]
-    public void New_never_returns_empty_guid()
+    public void NewNeverReturnsEmptyGuid()
     {
         EntityId id = EntityId.New();
 
@@ -435,7 +435,7 @@ namespace Nofarma.UnitTests.Domain.Common;
 public sealed class UtcInstantTests
 {
     [Fact]
-    public void From_normalizes_offset_to_utc()
+    public void FromNormalizesOffsetToUtc()
     {
         UtcInstant instant = UtcInstant.From(new DateTimeOffset(2026, 7, 27, 10, 0, 0, TimeSpan.FromHours(1)));
 
