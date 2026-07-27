@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+      - name: Restore
+        run: dotnet restore Nofarma.slnx
+      - name: Format
+        run: dotnet format Nofarma.slnx --verify-no-changes --no-restore
+      - name: Build
+        run: dotnet build Nofarma.slnx --configuration Release --no-restore -warnaserror
+      - name: Test
+        run: dotnet test Nofarma.slnx --configuration Release --no-build --logger "trx;LogFileName=tests.trx"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results
+          path: "**/TestResults/*.trx"
+          if-no-files-found: error
+          retention-days: 14

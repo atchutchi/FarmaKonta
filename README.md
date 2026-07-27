@@ -11,6 +11,7 @@ Documentos principais:
 - [Contexto do produto](PRODUCT.md)
 - [Sistema visual](DESIGN.md)
 - [Especificação funcional e técnica](docs/superpowers/specs/2026-07-27-nofarma-product-design.md)
+- [Verificação da fundação](docs/development/verification.md)
 
 ## Desenvolvimento local
 
