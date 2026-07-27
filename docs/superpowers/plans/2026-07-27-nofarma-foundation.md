@@ -812,7 +812,7 @@ namespace Nofarma.UnitTests.Composition;
 public sealed class SurfaceIdentityTests
 {
     [Fact]
-    public void Service_names_are_stable()
+    public void ServiceNamesRemainStableAcrossSurfaces()
     {
         Assert.Equal("Nofarma.Desktop", ServiceNames.Desktop);
         Assert.Equal("Nofarma.Api", ServiceNames.Api);
@@ -929,9 +929,15 @@ namespace Nofarma.Sync;
 
 public sealed class Worker(ILogger<Worker> logger) : BackgroundService
 {
+    private static readonly Action<ILogger, string, Exception?> LogServiceStarted =
+        LoggerMessage.Define<string>(
+            LogLevel.Information,
+            new EventId(1, nameof(ExecuteAsync)),
+            "{Service} iniciado");
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("{Service} iniciado", ServiceNames.Sync);
+        LogServiceStarted(logger, ServiceNames.Sync, null);
         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
     }
 }

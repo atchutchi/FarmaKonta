@@ -1,22 +1,18 @@
+using Nofarma.Contracts.Diagnostics;
+
 namespace Nofarma.Sync;
 
 public sealed class Worker(ILogger<Worker> logger) : BackgroundService
 {
-    private static readonly Action<ILogger, DateTimeOffset, Exception?> LogWorkerRunning =
-        LoggerMessage.Define<DateTimeOffset>(
+    private static readonly Action<ILogger, string, Exception?> LogServiceStarted =
+        LoggerMessage.Define<string>(
             LogLevel.Information,
             new EventId(1, nameof(ExecuteAsync)),
-            "Worker running at: {Time}");
+            "{Service} iniciado");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                LogWorkerRunning(logger, DateTimeOffset.Now, null);
-            }
-            await Task.Delay(1000, stoppingToken);
-        }
+        LogServiceStarted(logger, ServiceNames.Sync, null);
+        await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
     }
 }

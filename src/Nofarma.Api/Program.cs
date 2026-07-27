@@ -12,7 +12,7 @@ app.MapGet("/health/live", (IUtcClock clock) =>
 {
     string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0.0";
     return Results.Ok(new HealthResponse(
-        "Nofarma.Api",
+        ServiceNames.Api,
         "Healthy",
         version,
         clock.GetCurrentInstant().Value));
