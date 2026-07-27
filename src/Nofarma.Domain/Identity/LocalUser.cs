@@ -38,9 +38,9 @@ public sealed class LocalUser
 
     public string NormalizedLoginName { get; }
 
-    public UserRole Role { get; }
+    public UserRole Role { get; private set; }
 
-    public CredentialKind CredentialKind { get; }
+    public CredentialKind CredentialKind { get; private set; }
 
     public bool IsPrimaryAdministrator { get; }
 
@@ -81,6 +81,33 @@ public sealed class LocalUser
             CredentialKind.Pin,
             isPrimaryAdministrator: false,
             createdAtUtc);
+
+    public static LocalUser Create(
+        EntityId id,
+        string displayName,
+        string loginName,
+        UserRole role,
+        UtcInstant createdAtUtc)
+    {
+        if (role == UserRole.AbiptomSupport)
+        {
+            throw new ArgumentException(
+                "ABIPTOM support cannot have a standing local account.",
+                nameof(role));
+        }
+
+        CredentialKind credentialKind = role == UserRole.Cashier
+            ? CredentialKind.Pin
+            : CredentialKind.Password;
+        return new LocalUser(
+            id,
+            displayName,
+            loginName,
+            role,
+            credentialKind,
+            isPrimaryAdministrator: false,
+            createdAtUtc);
+    }
 
     public static LocalUser Restore(
         EntityId id,
@@ -142,6 +169,43 @@ public sealed class LocalUser
     {
         EnsureActive();
 
+        FailedLoginCount = 0;
+        LockedUntilUtc = null;
+    }
+
+    public void Deactivate()
+    {
+        if (IsPrimaryAdministrator)
+        {
+            throw new InvalidOperationException(
+                "The primary administrator cannot be deactivated.");
+        }
+
+        Status = UserStatus.Disabled;
+        FailedLoginCount = 0;
+        LockedUntilUtc = null;
+    }
+
+    public void ChangeRole(UserRole role)
+    {
+        EnsureActive();
+        if (role == UserRole.AbiptomSupport)
+        {
+            throw new ArgumentException(
+                "ABIPTOM support cannot have a standing local account.",
+                nameof(role));
+        }
+
+        if (IsPrimaryAdministrator && role != UserRole.Administrator)
+        {
+            throw new InvalidOperationException(
+                "The primary administrator must retain the administrator role.");
+        }
+
+        Role = role;
+        CredentialKind = role == UserRole.Cashier
+            ? CredentialKind.Pin
+            : CredentialKind.Password;
         FailedLoginCount = 0;
         LockedUntilUtc = null;
     }
