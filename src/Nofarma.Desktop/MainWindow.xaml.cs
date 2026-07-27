@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Nofarma.Desktop.Services;
 using Nofarma.Infrastructure.Composition;
 
 namespace Nofarma.Desktop;
@@ -6,12 +7,18 @@ namespace Nofarma.Desktop;
 public sealed partial class MainWindow : Window
 {
     private readonly LocalApplicationStartup _startup;
+    private readonly NavigationService _navigation;
     private bool _hasStarted;
 
-    public MainWindow(LocalApplicationStartup startup)
+    public MainWindow(
+        LocalApplicationStartup startup,
+        NavigationService navigation)
     {
         _startup = startup;
+        _navigation = navigation;
         InitializeComponent();
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 800));
+        _navigation.Initialize(RootFrame);
     }
 
     private async void OnStartupLoaded(object sender, RoutedEventArgs e)
@@ -24,10 +31,10 @@ public sealed partial class MainWindow : Window
         _hasStarted = true;
         ApplicationStartDestination destination = await _startup.InitializeAsync(
             CancellationToken.None);
-        StartupProgress.IsActive = false;
-        StartupProgress.Visibility = Visibility.Collapsed;
+        StartupOverlay.Visibility = Visibility.Collapsed;
         Title = destination == ApplicationStartDestination.Setup
             ? "NôFarma | Configuração inicial"
             : "NôFarma | Acesso local";
+        _navigation.NavigateTo(destination);
     }
 }

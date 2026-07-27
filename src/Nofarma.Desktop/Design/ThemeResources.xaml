@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Color x:Key="NofarmaBlueColor">#0057B8</Color>
+    <Color x:Key="NofarmaBlueDarkColor">#003D82</Color>
+    <Color x:Key="NofarmaGreenColor">#10984A</Color>
+    <Color x:Key="NofarmaCanvasColor">#F5F8FC</Color>
+    <Color x:Key="NofarmaTextColor">#172033</Color>
+    <Color x:Key="NofarmaMutedColor">#5F6B7A</Color>
+    <Color x:Key="NofarmaBorderColor">#D5DDE8</Color>
+    <SolidColorBrush x:Key="NofarmaBlueBrush" Color="{StaticResource NofarmaBlueColor}" />
+    <SolidColorBrush x:Key="NofarmaBlueDarkBrush" Color="{StaticResource NofarmaBlueDarkColor}" />
+    <SolidColorBrush x:Key="NofarmaGreenBrush" Color="{StaticResource NofarmaGreenColor}" />
+    <SolidColorBrush x:Key="NofarmaCanvasBrush" Color="{StaticResource NofarmaCanvasColor}" />
+    <SolidColorBrush x:Key="NofarmaTextBrush" Color="{StaticResource NofarmaTextColor}" />
+    <SolidColorBrush x:Key="NofarmaMutedBrush" Color="{StaticResource NofarmaMutedColor}" />
+    <SolidColorBrush x:Key="NofarmaBorderBrush" Color="{StaticResource NofarmaBorderColor}" />
+    <Style x:Key="NofarmaHeadingStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Segoe UI Variable Display" />
+        <Setter Property="FontSize" Value="28" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource NofarmaTextBrush}" />
+    </Style>
+    <Style x:Key="NofarmaPrimaryButtonStyle" TargetType="Button">
+        <Setter Property="MinHeight" Value="44" />
+        <Setter Property="Padding" Value="24,10" />
+        <Setter Property="Background" Value="{StaticResource NofarmaBlueBrush}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style x:Key="NofarmaFieldStyle" TargetType="TextBox">
+        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="CornerRadius" Value="5" />
+    </Style>
+</ResourceDictionary>

@@ -29,6 +29,9 @@ public partial class App : Microsoft.UI.Xaml.Application
             .BuildServiceProvider(validateScopes: true);
     }
 
+    public static IServiceProvider Services =>
+        ((App)Current)._services;
+
     /// <summary>
     /// Invoked when the application is launched.
     /// </summary>

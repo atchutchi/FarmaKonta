@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using Nofarma.Desktop.Services;
+using Nofarma.Desktop.ViewModels;
 
 namespace Nofarma.Desktop.Composition;
 
@@ -8,6 +10,8 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<MainWindow>();
+        services.AddSingleton<NavigationService>();
+        services.AddTransient<SetupWizardViewModel>();
         return services;
     }
 }
