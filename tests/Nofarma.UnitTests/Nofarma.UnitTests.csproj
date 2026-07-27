@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Nofarma.Domain\Nofarma.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Nofarma.Application\Nofarma.Application.csproj" />
+    <ProjectReference Include="..\..\src\Nofarma.Infrastructure\Nofarma.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

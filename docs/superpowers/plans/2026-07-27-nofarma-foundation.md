@@ -556,14 +556,16 @@ namespace Nofarma.UnitTests.Infrastructure.Time;
 public sealed class SystemUtcClockTests
 {
     [Fact]
-    public void GetCurrentInstant_returns_zero_offset()
+    public void GetCurrentInstantReturnsZeroOffsetAndCurrentTime()
     {
-        var clock = new SystemUtcClock();
+        SystemUtcClock clock = new();
+        DateTimeOffset before = DateTimeOffset.UtcNow;
 
         DateTimeOffset value = clock.GetCurrentInstant().Value;
 
+        DateTimeOffset after = DateTimeOffset.UtcNow;
         Assert.Equal(TimeSpan.Zero, value.Offset);
-        Assert.InRange(value, DateTimeOffset.UtcNow.AddSeconds(-2), DateTimeOffset.UtcNow.AddSeconds(2));
+        Assert.InRange(value, before, after);
     }
 }
 ```
