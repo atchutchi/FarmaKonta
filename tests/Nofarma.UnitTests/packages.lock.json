@@ -124,14 +124,6 @@
           "Microsoft.Extensions.Primitives": "10.0.10"
         }
       },
-      "Microsoft.Extensions.DependencyInjection": {
-        "type": "Transitive",
-        "resolved": "10.0.10",
-        "contentHash": "ANyvsgkNBRvcJh2XLgn8veGmajf+8m0AbKK+HPWdRL1yraSNVVSmQhFntLtdz/C795jxqqup+k05cs/3jZQPOA==",
-        "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.10"
-        }
-      },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {
         "type": "Transitive",
         "resolved": "10.0.10",
@@ -332,6 +324,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.10, )",
+          "Microsoft.Extensions.DependencyInjection": "[10.0.10, )",
           "Nofarma.Application": "[1.0.0, )",
           "Nofarma.Contracts": "[1.0.0, )",
           "Nofarma.Domain": "[1.0.0, )",
@@ -352,6 +345,15 @@
           "Microsoft.Extensions.Logging": "10.0.10",
           "SQLitePCLRaw.bundle_e_sqlite3": "2.1.11",
           "SQLitePCLRaw.core": "2.1.11"
+        }
+      },
+      "Microsoft.Extensions.DependencyInjection": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.10, )",
+        "resolved": "10.0.10",
+        "contentHash": "ANyvsgkNBRvcJh2XLgn8veGmajf+8m0AbKK+HPWdRL1yraSNVVSmQhFntLtdz/C795jxqqup+k05cs/3jZQPOA==",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.10"
         }
       },
       "SQLitePCLRaw.bundle_e_sqlite3": {
