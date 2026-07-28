@@ -136,7 +136,18 @@ public sealed class WindowsDeviceLicenseIdentityStoreTests : IDisposable
             && fullDirectory.StartsWith(fullTemp, StringComparison.OrdinalIgnoreCase)
             && name.StartsWith(expectedPrefix, StringComparison.Ordinal))
         {
-            Directory.Delete(fullDirectory, recursive: true);
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    Directory.Delete(fullDirectory, recursive: true);
+                    return;
+                }
+                catch (IOException) when (attempt < 19)
+                {
+                    Thread.Sleep(TimeSpan.FromMilliseconds(50));
+                }
+            }
         }
     }
 }
