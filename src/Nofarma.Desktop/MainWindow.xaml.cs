@@ -17,7 +17,7 @@ public sealed partial class MainWindow : Window
         _startup = startup;
         _navigation = navigation;
         InitializeComponent();
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 800));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(1366, 768));
         _navigation.Initialize(RootFrame);
     }
 

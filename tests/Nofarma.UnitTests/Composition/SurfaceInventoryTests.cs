@@ -1,3 +1,5 @@
+using Nofarma.Infrastructure.Import;
+
 namespace Nofarma.UnitTests.Composition;
 
 public sealed class SurfaceInventoryTests
@@ -36,6 +38,42 @@ public sealed class SurfaceInventoryTests
         Assert.Contains("LowStockProducts", code, StringComparison.Ordinal);
         Assert.Contains("OutOfStockProducts", code, StringComparison.Ordinal);
         Assert.Contains("ExpiryAttentionLots", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("StockAlertText.Visibility = Visibility.Visible", code, StringComparison.Ordinal);
+
+        string shell = File.ReadAllText(Path.Combine(
+            root, "src", "Nofarma.Desktop", "Views", "AppShellPage.xaml"));
+        Assert.Contains("MinWindowWidth=\"1450\"", shell, StringComparison.Ordinal);
+        Assert.Contains("Target=\"StockAlertText.Visibility\" Value=\"Collapsed\"", shell, StringComparison.Ordinal);
+        Assert.Contains("Target=\"StockAlertText.Visibility\" Value=\"Visible\"", shell, StringComparison.Ordinal);
+        Assert.Contains("Target=\"LocalDataText.Visibility\" Value=\"Collapsed\"", shell, StringComparison.Ordinal);
+        Assert.Contains("Target=\"ActivationText.Visibility\" Value=\"Collapsed\"", shell, StringComparison.Ordinal);
+        Assert.Contains("<ColumnDefinition Width=\"*\" />", shell, StringComparison.Ordinal);
+        Assert.Contains("<ColumnDefinition Width=\"Auto\" />", shell, StringComparison.Ordinal);
+        Assert.Contains("TextTrimming=\"CharacterEllipsis\"", shell, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OfficialImportTemplateContainsHeadersAndNoDataRows()
+    {
+        string root = FindRepositoryRoot();
+        string path = Path.Combine(root, "docs", "development", "inventory-import-template.csv");
+
+        var file = await CsvInventoryFileReader.ReadAsync(path, TestContext.Current.CancellationToken);
+
+        Assert.Contains("Nome comercial", file.Headers);
+        Assert.Contains("Unidade base", file.Headers);
+        Assert.Contains("Quantidade inicial", file.Headers);
+        Assert.Empty(file.Rows);
+    }
+
+    [Fact]
+    public void DesktopStartsAtApprovedInventoryViewport()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindow = File.ReadAllText(Path.Combine(
+            root, "src", "Nofarma.Desktop", "MainWindow.xaml.cs"));
+
+        Assert.Contains("SizeInt32(1366, 768)", mainWindow, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

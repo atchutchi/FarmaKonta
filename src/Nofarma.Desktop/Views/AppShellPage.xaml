@@ -52,19 +52,54 @@
 
         <Grid
             Grid.Column="1"
+            ColumnSpacing="16"
             Padding="18,0"
             Background="#064D8D">
-            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                <TextBlock x:Name="PharmacyNameText" FontWeight="SemiBold" Foreground="White" />
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="HeaderWidthStates">
+                    <VisualState x:Name="CompactHeader">
+                        <VisualState.StateTriggers>
+                            <AdaptiveTrigger MinWindowWidth="0" />
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="StockAlertText.Visibility" Value="Collapsed" />
+                            <Setter Target="LocalDataText.Visibility" Value="Collapsed" />
+                            <Setter Target="ActivationText.Visibility" Value="Collapsed" />
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="WideHeader">
+                        <VisualState.StateTriggers>
+                            <AdaptiveTrigger MinWindowWidth="1450" />
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="StockAlertText.Visibility" Value="Visible" />
+                            <Setter Target="LocalDataText.Visibility" Value="Visible" />
+                            <Setter Target="ActivationText.Visibility" Value="Visible" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <StackPanel
+                Grid.Column="0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="12">
+                <TextBlock x:Name="PharmacyNameText" MaxWidth="180" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis" />
                 <TextBlock Foreground="#A8C9E8" Text="|" />
-                <TextBlock x:Name="CurrentUserText" Foreground="White" />
+                <TextBlock x:Name="CurrentUserText" MaxWidth="220" Foreground="White" TextTrimming="CharacterEllipsis" />
                 <TextBlock Foreground="#A8C9E8" Text="|" />
                 <TextBlock Foreground="#FFE082" Text="● Sem internet" />
-                <TextBlock Foreground="White" Text="Dados locais" />
-                <TextBlock Foreground="#FFE082" Text="Activação pendente" />
+                <TextBlock x:Name="LocalDataText" Foreground="White" Text="Dados locais" />
+                <TextBlock x:Name="ActivationText" Foreground="#FFE082" Text="Activação pendente" />
                 <TextBlock x:Name="StockAlertText" Foreground="White" Visibility="Collapsed" />
             </StackPanel>
             <Button
+                Grid.Column="1"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Center"
                 Click="OnSignOut"

@@ -60,7 +60,6 @@ public sealed partial class AppShellPage : Page
         if (stock.ErrorMessage is null)
         {
             StockAlertText.Text = $"Stock: {stock.LowStockProducts} baixo, {stock.OutOfStockProducts} esgotado, {stock.ExpiryAttentionLots} validade";
-            StockAlertText.Visibility = Visibility.Visible;
         }
         ShowEmpty("Painel", "A visão operacional será preenchida apenas com vendas, stock e caixa registados nesta instalação.");
     }
