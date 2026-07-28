@@ -8,6 +8,8 @@ public sealed class CashShift
     private readonly List<CashMovement> _movements = [];
     private readonly ReadOnlyCollection<CashMovement> _readOnlyMovements;
     private long _expectedCashXof;
+    private long _totalEntriesXof;
+    private long _totalExitsXof;
 
     private CashShift(
         EntityId id,
@@ -43,6 +45,10 @@ public sealed class CashShift
     public CashShiftStatus Status { get; private set; }
 
     public Money ExpectedCash => Money.Xof(_expectedCashXof);
+
+    public Money TotalEntries => Money.Xof(_totalEntriesXof);
+
+    public Money TotalExits => Money.Xof(_totalExitsXof);
 
     public Money? CountedCash { get; private set; }
 
@@ -111,12 +117,21 @@ public sealed class CashShift
             reason,
             occurredAt);
         long expected;
+        long totalEntries = _totalEntriesXof;
+        long totalExits = _totalExitsXof;
         try
         {
-            long signedAmount = type is CashMovementType.ManualExit or CashMovementType.Refund
-                ? checked(-amount.Amount)
-                : amount.Amount;
+            bool decreasesCash = type is CashMovementType.ManualExit or CashMovementType.Refund;
+            long signedAmount = decreasesCash ? checked(-amount.Amount) : amount.Amount;
             expected = checked(_expectedCashXof + signedAmount);
+            if (decreasesCash)
+            {
+                totalExits = checked(_totalExitsXof + amount.Amount);
+            }
+            else
+            {
+                totalEntries = checked(_totalEntriesXof + amount.Amount);
+            }
         }
         catch (OverflowException)
         {
@@ -129,6 +144,8 @@ public sealed class CashShift
 
         _movements.Add(movement);
         _expectedCashXof = expected;
+        _totalEntriesXof = totalEntries;
+        _totalExitsXof = totalExits;
         return movement;
     }
 

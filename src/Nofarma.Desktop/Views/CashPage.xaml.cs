@@ -107,6 +107,7 @@ public sealed partial class CashPage : Page
         {
             MovementAmountBox.Text = string.Empty;
             MovementReasonBox.Text = string.Empty;
+            _viewModel.ResetManualMovementForm();
             string title = type == CashMovementType.ManualEntry ? "Entrada registada" : "Saída registada";
             ShowMessage(InfoBarSeverity.Success, title, _viewModel.StatusMessage);
         }
@@ -171,6 +172,8 @@ public sealed partial class CashPage : Page
             : Visibility.Collapsed;
 
         OpeningCashText.Text = _viewModel.OpeningCashText;
+        TotalEntriesText.Text = _viewModel.TotalEntriesText;
+        TotalExitsText.Text = _viewModel.TotalExitsText;
         ExpectedCashText.Text = _viewModel.ExpectedCashText;
         CloseExpectedCashText.Text = _viewModel.ExpectedCashText;
         OpenedAtText.Text = _viewModel.OpenedAtText;
@@ -236,7 +239,7 @@ public sealed partial class CashPage : Page
     private bool IsMovementInputValid() =>
         _viewModel.HasOpenShift &&
         !_viewModel.IsSubmitting &&
-        _viewModel.ValidateManualMovement(
+        _viewModel.CanSubmitManualMovement(
             CashMovementType.ManualEntry,
             MovementAmountBox.Text,
             MovementReasonBox.Text);

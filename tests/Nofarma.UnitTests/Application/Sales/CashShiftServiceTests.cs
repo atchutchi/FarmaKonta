@@ -342,6 +342,28 @@ public sealed class CashShiftServiceTests
     }
 
     [Fact]
+    public async Task CurrentShiftSummaryExposesRealEntryAndExitTotals()
+    {
+        LocalSession actor = Session(UserRole.Cashier);
+        var store = new CashShiftStore(actor.UserId);
+        CashShift shift = OpenShift(store.Context, openingCashXof: 1_000);
+        shift.RecordMovement(EntityId.New(), CashMovementType.Sale, Money.Xof(600), EntityId.New(), "Venda", FixedClock.Now);
+        shift.RecordMovement(EntityId.New(), CashMovementType.ManualEntry, Money.Xof(100), null, "Reforço", FixedClock.Now);
+        shift.RecordMovement(EntityId.New(), CashMovementType.Refund, Money.Xof(50), EntityId.New(), "Reembolso", FixedClock.Now);
+        shift.RecordMovement(EntityId.New(), CashMovementType.ManualExit, Money.Xof(25), null, "Despesa", FixedClock.Now);
+        store.Seed(shift);
+        CashShiftService service = CreateService(store, new StockPolicy(true));
+
+        CashShiftSummary result = await service.GetCurrentAsync(
+            actor,
+            TestContext.Current.CancellationToken) ?? throw new Xunit.Sdk.XunitException("Era esperado um turno aberto.");
+
+        Assert.Equal(700, result.TotalEntriesXof);
+        Assert.Equal(75, result.TotalExitsXof);
+        Assert.Equal(1_625, result.ExpectedCashXof);
+    }
+
+    [Fact]
     public async Task ConcurrentIdenticalMovementReturnsCommittedIdempotentResult()
     {
         LocalSession actor = Session(UserRole.Cashier);
@@ -780,6 +802,8 @@ public sealed class CashShiftServiceTests
             shift.UserId,
             shift.Status,
             shift.OpeningCash.Amount,
+            shift.TotalEntries.Amount,
+            shift.TotalExits.Amount,
             shift.ExpectedCash.Amount,
             shift.CountedCash?.Amount,
             shift.Difference?.Amount,

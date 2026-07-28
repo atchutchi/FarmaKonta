@@ -37,6 +37,8 @@ public sealed class CashShiftTests
 
         Assert.Equal(CashShiftStatus.Closed, shift.Status);
         Assert.Equal(64_000, shift.ExpectedCash.Amount);
+        Assert.Equal(14_500, shift.TotalEntries.Amount);
+        Assert.Equal(500, shift.TotalExits.Amount);
         Assert.Equal(64_250, shift.CountedCash!.Value.Amount);
         Assert.Equal(250, shift.Difference!.Value.Amount);
         Assert.Equal(3, shift.Movements.Count);
@@ -64,6 +66,8 @@ public sealed class CashShiftTests
             occurredAt);
 
         Assert.Equal(8_000, shift.ExpectedCash.Amount);
+        Assert.Equal(0, shift.TotalEntries.Amount);
+        Assert.Equal(2_000, shift.TotalExits.Amount);
     }
 
     [Theory]

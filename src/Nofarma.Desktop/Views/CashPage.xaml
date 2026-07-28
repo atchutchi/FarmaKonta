@@ -141,16 +141,20 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Data de abertura" />
                                 <TextBlock x:Name="OpenedAtText" Grid.Column="1" FontWeight="SemiBold" />
                                 <TextBlock Grid.Row="1" Foreground="{StaticResource NofarmaMutedBrush}" Text="Fundo inicial" />
                                 <TextBlock x:Name="OpeningCashText" Grid.Row="1" Grid.Column="1" FontWeight="SemiBold" />
-                                <TextBlock Grid.Row="2" Foreground="{StaticResource NofarmaMutedBrush}" Text="Actividade" />
-                                <TextBlock x:Name="MovementCountText" Grid.Row="2" Grid.Column="1" FontWeight="SemiBold" />
-                                <TextBlock Grid.Row="3" FontSize="17" FontWeight="SemiBold" Text="Dinheiro esperado" />
-                                <TextBlock x:Name="ExpectedCashText" Grid.Row="3" Grid.Column="1" FontSize="21" FontWeight="Bold" Foreground="{StaticResource NofarmaBlueBrush}" />
+                                <TextBlock Grid.Row="2" Foreground="{StaticResource NofarmaMutedBrush}" Text="Total de entradas" />
+                                <TextBlock x:Name="TotalEntriesText" Grid.Row="2" Grid.Column="1" FontWeight="SemiBold" />
+                                <TextBlock Grid.Row="3" Foreground="{StaticResource NofarmaMutedBrush}" Text="Total de saídas" />
+                                <TextBlock x:Name="TotalExitsText" Grid.Row="3" Grid.Column="1" FontWeight="SemiBold" />
+                                <TextBlock Grid.Row="4" FontSize="17" FontWeight="SemiBold" Text="Dinheiro esperado" />
+                                <TextBlock x:Name="ExpectedCashText" Grid.Row="4" Grid.Column="1" FontSize="21" FontWeight="Bold" Foreground="{StaticResource NofarmaBlueBrush}" />
                             </Grid>
+                            <TextBlock x:Name="MovementCountText" Foreground="{StaticResource NofarmaMutedBrush}" />
 
                             <Rectangle Height="1" Fill="{StaticResource NofarmaBorderBrush}" />
                             <TextBlock FontSize="18" FontWeight="SemiBold" Text="Entrada ou saída manual" />
@@ -206,8 +210,7 @@
                                     MinHeight="44"
                                     AutomationProperties.Name="Registar entrada manual de caixa"
                                     Click="OnRecordEntry"
-                                    Content="Registar entrada"
-                                    Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                                    Content="Registar entrada" />
                             </StackPanel>
                         </StackPanel>
                     </Border>

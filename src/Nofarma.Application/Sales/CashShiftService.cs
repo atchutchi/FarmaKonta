@@ -368,6 +368,8 @@ public sealed class CashShiftService(
         shift.UserId,
         shift.Status,
         shift.OpeningCash.Amount,
+        shift.TotalEntries.Amount,
+        shift.TotalExits.Amount,
         shift.ExpectedCash.Amount,
         shift.CountedCash?.Amount,
         shift.Difference?.Amount,

@@ -69,6 +69,8 @@ public sealed class CashViewModel(ICashPageOperations operations)
     public string StatusMessage { get; private set; } = "A confirmar o estado do caixa.";
     public string? ErrorMessage { get; private set; }
     public string OpeningCashText => FormatXof(CurrentShift?.OpeningCashXof);
+    public string TotalEntriesText => FormatXof(CurrentShift?.TotalEntriesXof);
+    public string TotalExitsText => FormatXof(CurrentShift?.TotalExitsXof);
     public string ExpectedCashText => FormatXof(CurrentShift?.ExpectedCashXof);
     public string OpenedAtText => CurrentShift is null
         ? "Indisponível"
@@ -151,6 +153,13 @@ public sealed class CashViewModel(ICashPageOperations operations)
 
     public bool ValidateManualMovement(CashMovementType type, string amount, string reason) =>
         TryManualMovement(type, amount, reason, out _, out _);
+
+    public bool CanSubmitManualMovement(CashMovementType type, string amount, string reason) =>
+        HasOpenShift && BuildManualMovementErrors(type, amount, reason, out _, out _).Count == 0;
+
+    public void ResetManualMovementForm() => SetValidationGroup(
+        ["Movimento", "Valor do movimento", "Motivo"],
+        new Dictionary<string, string>());
 
     public async Task<bool> RecordManualMovementAsync(
         CashMovementType type,
@@ -295,6 +304,23 @@ public sealed class CashViewModel(ICashPageOperations operations)
         out long movementAmount,
         out string normalizedReason)
     {
+        Dictionary<string, string> errors = BuildManualMovementErrors(
+            type,
+            amount,
+            reason,
+            out movementAmount,
+            out normalizedReason);
+        SetValidationGroup(["Movimento", "Valor do movimento", "Motivo"], errors);
+        return errors.Count == 0;
+    }
+
+    private static Dictionary<string, string> BuildManualMovementErrors(
+        CashMovementType type,
+        string amount,
+        string reason,
+        out long movementAmount,
+        out string normalizedReason)
+    {
         var errors = new Dictionary<string, string>(StringComparer.Ordinal);
         if (type is not CashMovementType.ManualEntry and not CashMovementType.ManualExit)
         {
@@ -313,8 +339,7 @@ public sealed class CashViewModel(ICashPageOperations operations)
         {
             errors["Motivo"] = "O motivo não pode exceder 500 caracteres.";
         }
-        SetValidationGroup(["Movimento", "Valor do movimento", "Motivo"], errors);
-        return errors.Count == 0;
+        return errors;
     }
 
     private void SetValidationGroup(

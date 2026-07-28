@@ -15,6 +15,8 @@ public sealed record CashShiftSummary(
     EntityId UserId,
     CashShiftStatus Status,
     long OpeningCashXof,
+    long TotalEntriesXof,
+    long TotalExitsXof,
     long ExpectedCashXof,
     long? CountedCashXof,
     long? DifferenceXof,

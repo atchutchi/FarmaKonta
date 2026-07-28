@@ -93,17 +93,24 @@ public sealed class CashViewModelTests
     }
 
     [Fact]
-    public async Task CurrentShiftDisplaysOnlyTheExpectedCashReturnedByTheService()
+    public async Task CurrentShiftDisplaysOnlyCashTotalsReturnedByTheService()
     {
         var operations = new CashOperations
         {
-            CurrentShift = Shift(openingCash: 50_000, expectedCash: 183_400, movementCount: 4)
+            CurrentShift = Shift(
+                openingCash: 50_000,
+                expectedCash: 183_400,
+                totalEntries: 145_750,
+                totalExits: 12_350,
+                movementCount: 4)
         };
         var viewModel = new CashViewModel(operations);
 
         await viewModel.LoadAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal("50 000 XOF", viewModel.OpeningCashText);
+        Assert.Equal("145 750 XOF", viewModel.TotalEntriesText);
+        Assert.Equal("12 350 XOF", viewModel.TotalExitsText);
         Assert.Equal("183 400 XOF", viewModel.ExpectedCashText);
         Assert.Equal("4 movimentos registados", viewModel.MovementCountText);
     }
@@ -173,9 +180,118 @@ public sealed class CashViewModelTests
         Assert.Contains("Valor contado", viewModel.ValidationErrors.Keys);
     }
 
+    [Fact]
+    public void ManualMovementRejectsReasonLongerThanFiveHundredCharacters()
+    {
+        var viewModel = new CashViewModel(new CashOperations());
+
+        bool valid = viewModel.ValidateManualMovement(
+            CashMovementType.ManualEntry,
+            "100",
+            new string('a', 501));
+
+        Assert.False(valid);
+        Assert.Contains("Motivo", viewModel.ValidationErrors.Keys);
+    }
+
+    [Fact]
+    public async Task ClosingRejectsNegativeCountedCash()
+    {
+        var operations = new CashOperations
+        {
+            CurrentShift = Shift(openingCash: 50_000, expectedCash: 51_000)
+        };
+        var viewModel = new CashViewModel(operations);
+        await viewModel.LoadAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(viewModel.PreviewClose("-1"));
+        Assert.Contains("Valor contado", viewModel.ValidationErrors.Keys);
+    }
+
+    [Fact]
+    public async Task ManualMovementIgnoresASecondSubmissionWhileTheFirstIsRunning()
+    {
+        var operations = new CashOperations
+        {
+            CurrentShift = Shift(openingCash: 50_000, expectedCash: 50_000),
+            DelayMovement = true
+        };
+        var viewModel = new CashViewModel(operations);
+        await viewModel.LoadAsync(TestContext.Current.CancellationToken);
+
+        Task<bool> first = viewModel.RecordManualMovementAsync(
+            CashMovementType.ManualEntry,
+            "100",
+            "Reforço",
+            TestContext.Current.CancellationToken);
+        bool second = await viewModel.RecordManualMovementAsync(
+            CashMovementType.ManualEntry,
+            "100",
+            "Reforço",
+            TestContext.Current.CancellationToken);
+        operations.CompleteMovement(Shift(
+            openingCash: 50_000,
+            expectedCash: 50_100,
+            totalEntries: 100,
+            movementCount: 1));
+
+        Assert.True(await first);
+        Assert.False(second);
+        Assert.Equal(1, operations.MovementCalls);
+    }
+
+    [Fact]
+    public async Task ClosingIgnoresASecondSubmissionWhileTheFirstIsRunning()
+    {
+        var operations = new CashOperations
+        {
+            CurrentShift = Shift(openingCash: 50_000, expectedCash: 50_000),
+            DelayClose = true
+        };
+        var viewModel = new CashViewModel(operations);
+        await viewModel.LoadAsync(TestContext.Current.CancellationToken);
+
+        Task<bool> first = viewModel.CloseAsync("50000", TestContext.Current.CancellationToken);
+        bool second = await viewModel.CloseAsync("50000", TestContext.Current.CancellationToken);
+        operations.CompleteClose(Shift(
+            openingCash: 50_000,
+            expectedCash: 50_000,
+            status: CashShiftStatus.Closed,
+            countedCash: 50_000,
+            difference: 0));
+
+        Assert.True(await first);
+        Assert.False(second);
+        Assert.Equal(1, operations.CloseCalls);
+    }
+
+    [Fact]
+    public async Task ResetManualMovementFormClearsValidationCreatedByEmptyUiFields()
+    {
+        var operations = new CashOperations
+        {
+            CurrentShift = Shift(openingCash: 50_000, expectedCash: 50_000)
+        };
+        var viewModel = new CashViewModel(operations);
+        await viewModel.LoadAsync(TestContext.Current.CancellationToken);
+        Assert.True(await viewModel.RecordManualMovementAsync(
+            CashMovementType.ManualEntry,
+            "100",
+            "Reforço",
+            TestContext.Current.CancellationToken));
+        Assert.False(viewModel.ValidateManualMovement(CashMovementType.ManualEntry, string.Empty, string.Empty));
+
+        viewModel.ResetManualMovementForm();
+
+        Assert.DoesNotContain("Valor do movimento", viewModel.ValidationErrors.Keys);
+        Assert.DoesNotContain("Motivo", viewModel.ValidationErrors.Keys);
+    }
+
     private static CashShiftSummary Shift(
         long openingCash,
         long expectedCash,
+        long totalEntries = 0,
+        long totalExits = 0,
         int movementCount = 0,
         CashShiftStatus status = CashShiftStatus.Open,
         long? countedCash = null,
@@ -186,6 +302,8 @@ public sealed class CashViewModelTests
             EntityId.New(),
             status,
             openingCash,
+            totalEntries,
+            totalExits,
             expectedCash,
             countedCash,
             difference,
@@ -201,12 +319,19 @@ public sealed class CashViewModelTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<CashShiftSummary> _open =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<CashShiftSummary> _movement =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<CashShiftSummary> _close =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public CashShiftSummary? CurrentShift { get; init; }
         public bool DelayLoad { get; init; }
         public bool DelayOpen { get; init; }
+        public bool DelayMovement { get; init; }
+        public bool DelayClose { get; init; }
         public int OpenCalls { get; private set; }
         public int MovementCalls { get; private set; }
+        public int CloseCalls { get; private set; }
 
         public Task<CashShiftSummary?> GetCurrentAsync(CancellationToken cancellationToken) =>
             DelayLoad ? _load.Task : Task.FromResult(CurrentShift);
@@ -226,22 +351,35 @@ public sealed class CashViewModelTests
             MovementCalls++;
             long expected = (CurrentShift?.ExpectedCashXof ?? 0) +
                 (request.Type == CashMovementType.ManualExit ? -request.AmountXof : request.AmountXof);
-            return Task.FromResult(Shift(
+            CashShiftSummary result = Shift(
                 CurrentShift?.OpeningCashXof ?? 0,
                 expected,
-                (CurrentShift?.MovementCount ?? 0) + 1));
+                (CurrentShift?.TotalEntriesXof ?? 0) +
+                    (request.Type == CashMovementType.ManualEntry ? request.AmountXof : 0),
+                (CurrentShift?.TotalExitsXof ?? 0) +
+                    (request.Type == CashMovementType.ManualExit ? request.AmountXof : 0),
+                (CurrentShift?.MovementCount ?? 0) + 1);
+            return DelayMovement ? _movement.Task : Task.FromResult(result);
         }
 
-        public Task<CashShiftSummary> CloseAsync(CloseCashShiftRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult(Shift(
+        public Task<CashShiftSummary> CloseAsync(CloseCashShiftRequest request, CancellationToken cancellationToken)
+        {
+            CloseCalls++;
+            CashShiftSummary result = Shift(
                 CurrentShift?.OpeningCashXof ?? 0,
                 CurrentShift?.ExpectedCashXof ?? 0,
+                CurrentShift?.TotalEntriesXof ?? 0,
+                CurrentShift?.TotalExitsXof ?? 0,
                 CurrentShift?.MovementCount ?? 0,
                 CashShiftStatus.Closed,
                 request.CountedCashXof,
-                request.CountedCashXof - (CurrentShift?.ExpectedCashXof ?? 0)));
+                request.CountedCashXof - (CurrentShift?.ExpectedCashXof ?? 0));
+            return DelayClose ? _close.Task : Task.FromResult(result);
+        }
 
         public void CompleteLoad(CashShiftSummary? shift) => _load.SetResult(shift);
         public void CompleteOpen(CashShiftSummary shift) => _open.SetResult(shift);
+        public void CompleteMovement(CashShiftSummary shift) => _movement.SetResult(shift);
+        public void CompleteClose(CashShiftSummary shift) => _close.SetResult(shift);
     }
 }
