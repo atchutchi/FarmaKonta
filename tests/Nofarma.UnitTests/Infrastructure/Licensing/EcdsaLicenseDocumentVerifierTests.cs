@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using Nofarma.Application.Licensing;
@@ -45,6 +46,28 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
         Assert.Equal("QA", result.License.Channel);
         Assert.Equal(LicenseDocumentTestData.KeyId, result.License.KeyId);
         Assert.Equal(document, result.License.Document.ToArray());
+    }
+
+    [Fact]
+    public void VerifiedDocumentUsesTheSnapshotTakenBeforeTheSourceCanMutate()
+    {
+        byte[] expectedDocument = ValidDocument();
+        int observedAccesses = CountSourceAccesses(expectedDocument);
+        int mutationAccess = observedAccesses > 1 ? observedAccesses : int.MaxValue;
+        using var source = new MutatingMemoryManager(expectedDocument, mutationAccess);
+        ReadOnlyMemory<byte> sourceMemory = source.Memory;
+        source.ResetAccessCount();
+
+        LicenseVerification result = _verifier.Verify(
+            sourceMemory,
+            LicenseDocumentTestData.DeviceIdentity,
+            LicenseDocumentTestData.Context);
+        source.MutateNow();
+
+        Assert.True(source.WasMutated);
+        Assert.True(result.IsValid, $"{result.Code}; source accesses: {source.AccessCount}");
+        Assert.NotNull(result.License);
+        Assert.Equal(expectedDocument, result.License.Document.ToArray());
     }
 
     [Fact]
@@ -193,20 +216,29 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
     }
 
     [Fact]
-    public void RejectsJsonDeeperThanSixteenLevels()
+    public void RejectsKnownObjectStructureDeeperThanSixteenLevels()
     {
-        string document = new string('[', 17) + "0" + new string(']', 17);
+        string nestedCapabilities = new string('[', 18) + "0" + new string(']', 18);
+        string document = ValidJson().Replace(
+            "\"capabilities\":[]",
+            $"\"capabilities\":{nestedCapabilities}",
+            StringComparison.Ordinal);
 
-        AssertDocumentInvalid(document);
+        LicenseVerification result = _verifier.Verify(
+            Encoding.UTF8.GetBytes(document),
+            LicenseDocumentTestData.DeviceIdentity,
+            LicenseDocumentTestData.Context);
+
+        Assert.False(result.IsValid);
+        Assert.Equal("DOCUMENT_TOO_DEEP", result.Code);
+        Assert.Null(result.License);
     }
 
     [Fact]
-    public void RejectsFutureSchemaVersionsBeforeReturningALicense()
+    public void RejectsFutureSchemaVersionBeforeCheckingTheCorruptedSignature()
     {
-        SignedLicenseEnvelope envelope = SignedEnvelope(LicenseDocumentTestData.UnsignedEnvelope() with
-        {
-            SchemaVersion = 2
-        });
+        SignedLicenseEnvelope envelope = CorruptSignature(SignedEnvelope(
+            LicenseDocumentTestData.UnsignedEnvelope() with { SchemaVersion = 2 }));
 
         LicenseVerification result = Verify(envelope);
 
@@ -216,12 +248,13 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
     }
 
     [Fact]
-    public void QaBuildRejectsCommercialDocumentsEvenWithAValidSignature()
+    public void QaBuildRejectsCommercialChannelBeforeCheckingTheCorruptedSignature()
     {
-        SignedLicenseEnvelope envelope = SignedEnvelope(LicenseDocumentTestData.UnsignedEnvelope() with
-        {
-            Channel = LicenseBuildChannel.Commercial
-        });
+        SignedLicenseEnvelope envelope = CorruptSignature(SignedEnvelope(
+            LicenseDocumentTestData.UnsignedEnvelope() with
+            {
+                Channel = LicenseBuildChannel.Commercial
+            }));
 
         LicenseVerification result = Verify(envelope);
 
@@ -230,12 +263,13 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
     }
 
     [Fact]
-    public void RejectsUndefinedChannels()
+    public void RejectsUndefinedChannelBeforeCheckingTheCorruptedSignature()
     {
-        SignedLicenseEnvelope envelope = SignedEnvelope(LicenseDocumentTestData.UnsignedEnvelope() with
-        {
-            Channel = (LicenseBuildChannel)99
-        });
+        SignedLicenseEnvelope envelope = CorruptSignature(SignedEnvelope(
+            LicenseDocumentTestData.UnsignedEnvelope() with
+            {
+                Channel = (LicenseBuildChannel)99
+            }));
 
         LicenseVerification result = Verify(envelope);
 
@@ -244,12 +278,10 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
     }
 
     [Fact]
-    public void RejectsUnknownSignatureAlgorithms()
+    public void RejectsUnknownSignatureAlgorithmBeforeCheckingTheCorruptedSignature()
     {
-        SignedLicenseEnvelope envelope = SignedEnvelope(LicenseDocumentTestData.UnsignedEnvelope() with
-        {
-            SignatureAlgorithm = 2
-        });
+        SignedLicenseEnvelope envelope = CorruptSignature(SignedEnvelope(
+            LicenseDocumentTestData.UnsignedEnvelope() with { SignatureAlgorithm = 2 }));
 
         LicenseVerification result = Verify(envelope);
 
@@ -361,6 +393,21 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
     private byte[] ValidDocument() =>
         CanonicalLicenseJson.SerializeEnvelope(SignedEnvelope());
 
+    private int CountSourceAccesses(byte[] document)
+    {
+        using var probe = new MutatingMemoryManager(document, mutateOnAccess: int.MaxValue);
+        ReadOnlyMemory<byte> probeMemory = probe.Memory;
+        probe.ResetAccessCount();
+
+        LicenseVerification result = _verifier.Verify(
+            probeMemory,
+            LicenseDocumentTestData.DeviceIdentity,
+            LicenseDocumentTestData.Context);
+
+        Assert.True(result.IsValid);
+        return probe.AccessCount;
+    }
+
     private string ValidJson() => Encoding.UTF8.GetString(ValidDocument());
 
     private SignedLicenseEnvelope SignedEnvelope() =>
@@ -373,6 +420,13 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
             HashAlgorithmName.SHA256,
             DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
         return unsigned with { Signature = signature };
+    }
+
+    private static SignedLicenseEnvelope CorruptSignature(SignedLicenseEnvelope envelope)
+    {
+        byte[] corrupted = envelope.Signature.ToArray();
+        corrupted[0] ^= 0x01;
+        return envelope with { Signature = corrupted };
     }
 
     private LicenseVerification Verify(SignedLicenseEnvelope envelope) =>
@@ -391,6 +445,53 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
         Assert.False(result.IsValid);
         Assert.Equal("DOCUMENT_INVALID", result.Code);
         Assert.Null(result.License);
+    }
+
+    private sealed class MutatingMemoryManager(
+        byte[] source,
+        int mutateOnAccess) : MemoryManager<byte>
+    {
+        private readonly byte[] _source = source.ToArray();
+        private int _accessCount;
+
+        internal bool WasMutated { get; private set; }
+
+        internal int AccessCount => _accessCount;
+
+        public override Span<byte> GetSpan()
+        {
+            _accessCount++;
+            if (_accessCount == mutateOnAccess)
+            {
+                MutateNow();
+            }
+
+            return _source;
+        }
+
+        public override MemoryHandle Pin(int elementIndex = 0) =>
+            throw new NotSupportedException();
+
+        public override void Unpin()
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+        }
+
+        internal void ResetAccessCount() => _accessCount = 0;
+
+        internal void MutateNow()
+        {
+            if (WasMutated)
+            {
+                return;
+            }
+
+            _source[^1] = (byte)'[';
+            WasMutated = true;
+        }
     }
 }
 

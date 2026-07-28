@@ -30,14 +30,23 @@ public sealed class EcdsaLicenseDocumentVerifier(TrustedLicenseKeyRegistry keys)
             return LicenseVerification.Invalid("DOCUMENT_TOO_LARGE");
         }
 
-        if (!CanonicalLicenseJson.TryParseEnvelope(document, out SignedLicenseEnvelope? envelope)
+        byte[] documentSnapshot = document.ToArray();
+        ReadOnlyMemory<byte> stableDocument = documentSnapshot;
+
+        if (!CanonicalLicenseJson.TryParseEnvelope(
+                stableDocument,
+                out SignedLicenseEnvelope? envelope,
+                out CanonicalLicenseParseFailure parseFailure)
             || envelope is null)
         {
-            return LicenseVerification.Invalid("DOCUMENT_INVALID");
+            return LicenseVerification.Invalid(
+                parseFailure == CanonicalLicenseParseFailure.TooDeep
+                    ? "DOCUMENT_TOO_DEEP"
+                    : "DOCUMENT_INVALID");
         }
 
         byte[] canonicalDocument = CanonicalLicenseJson.SerializeEnvelope(envelope);
-        if (!document.Span.SequenceEqual(canonicalDocument))
+        if (!stableDocument.Span.SequenceEqual(canonicalDocument))
         {
             return LicenseVerification.Invalid("DOCUMENT_INVALID");
         }
@@ -109,7 +118,7 @@ public sealed class EcdsaLicenseDocumentVerifier(TrustedLicenseKeyRegistry keys)
             grant,
             ChannelName(envelope.Channel),
             envelope.KeyId,
-            document.ToArray());
+            documentSnapshot);
         return LicenseVerification.Valid(verified);
     }
 

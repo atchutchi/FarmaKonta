@@ -25,11 +25,20 @@ public sealed record SignedLicenseEnvelope(
     IReadOnlyList<int> Capabilities,
     ReadOnlyMemory<byte> Signature);
 
+internal enum CanonicalLicenseParseFailure
+{
+    None = 0,
+    Invalid = 1,
+    TooDeep = 2
+}
+
 public static class CanonicalLicenseJson
 {
+    private const int MaximumDepth = 16;
+
     private static readonly JsonDocumentOptions DocumentOptions = new()
     {
-        MaxDepth = 16,
+        MaxDepth = MaximumDepth,
         AllowTrailingCommas = false,
         CommentHandling = JsonCommentHandling.Disallow
     };
@@ -63,9 +72,11 @@ public static class CanonicalLicenseJson
 
     internal static bool TryParseEnvelope(
         ReadOnlyMemory<byte> document,
-        out SignedLicenseEnvelope? envelope)
+        out SignedLicenseEnvelope? envelope,
+        out CanonicalLicenseParseFailure failure)
     {
         envelope = null;
+        failure = CanonicalLicenseParseFailure.Invalid;
 
         try
         {
@@ -119,10 +130,16 @@ public static class CanonicalLicenseJson
                 graceUntilUtc,
                 capabilities!,
                 signature!);
+            failure = CanonicalLicenseParseFailure.None;
             return true;
         }
         catch (JsonException)
         {
+            if (IsWellFormedBeyondMaximumDepth(document))
+            {
+                failure = CanonicalLicenseParseFailure.TooDeep;
+            }
+
             return false;
         }
         catch (FormatException)
@@ -187,6 +204,30 @@ public static class CanonicalLicenseJson
         }
 
         return buffer.WrittenSpan.ToArray();
+    }
+
+    private static bool IsWellFormedBeyondMaximumDepth(ReadOnlyMemory<byte> document)
+    {
+        try
+        {
+            using JsonDocument ignored = JsonDocument.Parse(
+                document,
+                new JsonDocumentOptions
+                {
+                    MaxDepth = Math.Max(MaximumDepth + 1, document.Length),
+                    AllowTrailingCommas = false,
+                    CommentHandling = JsonCommentHandling.Disallow
+                });
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private static bool HasExactProperties(JsonElement root)
