@@ -26,4 +26,9 @@
     <ProjectReference Include="..\..\src\Nofarma.Infrastructure\Nofarma.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\ProductsViewModel.cs" Link="Desktop\ProductsViewModel.cs" />
+    <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\SuppliersViewModel.cs" Link="Desktop\SuppliersViewModel.cs" />
+  </ItemGroup>
+
 </Project>

@@ -63,6 +63,12 @@ public sealed partial class AppShellPage : Page
 
         switch (destination)
         {
+            case "Produtos":
+                ModuleContent.Content = new ProductsPage();
+                break;
+            case "Fornecedores":
+                ModuleContent.Content = new SuppliersPage();
+                break;
             case "Utilizadores":
                 ModuleContent.Content = new UsersPage();
                 break;

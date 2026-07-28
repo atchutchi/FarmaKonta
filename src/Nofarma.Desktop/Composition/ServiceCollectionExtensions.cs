@@ -14,6 +14,10 @@ public static class ServiceCollectionExtensions
         services.AddTransient<SetupWizardViewModel>();
         services.AddTransient<LoginViewModel>();
         services.AddTransient<UsersViewModel>();
+        services.AddTransient<IProductPageOperations, ProductPageOperations>();
+        services.AddTransient<ProductsViewModel>();
+        services.AddTransient<ISupplierPageOperations, SupplierPageOperations>();
+        services.AddTransient<SuppliersViewModel>();
         return services;
     }
 }

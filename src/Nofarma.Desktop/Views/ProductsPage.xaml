@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Nofarma.Desktop.Views.ProductsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:catalog="using:Nofarma.Application.Catalog"
+    Background="{StaticResource NofarmaCanvasBrush}"
+    Loaded="OnLoaded">
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <StackPanel Spacing="3">
+                <TextBlock Style="{StaticResource NofarmaHeadingStyle}" Text="Produtos" />
+                <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Catálogo local, preços e regras de stock." />
+            </StackPanel>
+            <Button
+                HorizontalAlignment="Right"
+                Click="OnShowEditor"
+                Style="{StaticResource NofarmaPrimaryButtonStyle}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="16" Glyph="&#xE710;" />
+                    <TextBlock Text="Novo produto" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <Border Grid.Row="1" Padding="12" Background="White" BorderBrush="{StaticResource NofarmaBorderBrush}" BorderThickness="1" CornerRadius="8">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <AutoSuggestBox
+                    x:Name="ProductSearchBox"
+                    MinHeight="44"
+                    AutomationProperties.Name="Pesquisar produtos"
+                    PlaceholderText="Código, código de barras ou nome comercial"
+                    QueryIcon="Find"
+                    QuerySubmitted="OnSearchSubmitted" />
+                <Button Grid.Column="1" MinWidth="108" MinHeight="44" Click="OnRefresh" Content="Actualizar" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
+                <ColumnDefinition x:Name="EditorColumn" Width="0" />
+            </Grid.ColumnDefinitions>
+            <Border Background="White" BorderBrush="{StaticResource NofarmaBorderBrush}" BorderThickness="1" CornerRadius="8">
+                <Grid>
+                    <ProgressRing x:Name="ProductsProgress" Width="36" Height="36" IsActive="False" Visibility="Collapsed" />
+                    <StackPanel x:Name="ProductsEmptyState" MaxWidth="420" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Visibility="Collapsed">
+                        <FontIcon HorizontalAlignment="Center" FontSize="32" Foreground="{StaticResource NofarmaBlueBrush}" Glyph="&#xE8D5;" />
+                        <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Text="Ainda não existem produtos registados" />
+                        <TextBlock TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource NofarmaMutedBrush}" Text="Cria o primeiro produto ou usa a importação de inventário para preparar o catálogo local." />
+                    </StackPanel>
+                    <ListView x:Name="ProductsList" SelectionMode="None">
+                        <ListView.Header>
+                            <Grid MinHeight="44" Padding="14,0" Background="#EEF3F9" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="80" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="Código" />
+                                <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" Text="Nome comercial" />
+                                <TextBlock Grid.Column="2" VerticalAlignment="Center" FontWeight="SemiBold" Text="Tipo" />
+                                <TextBlock Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="SemiBold" Text="Preço (XOF)" />
+                                <TextBlock Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="SemiBold" Text="Stock mín." />
+                                <TextBlock Grid.Column="5" VerticalAlignment="Center" FontWeight="SemiBold" Text="Estado" />
+                            </Grid>
+                        </ListView.Header>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="catalog:ProductSummary">
+                                <Grid MinHeight="48" Padding="14,6" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="80" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Text="{x:Bind Code}" />
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Type}" />
+                                    <TextBlock Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" Text="{x:Bind SalePriceXof}" />
+                                    <TextBlock Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Center" Text="{x:Bind MinimumStockBase}" />
+                                    <TextBlock Grid.Column="5" VerticalAlignment="Center" Foreground="{StaticResource NofarmaGreenBrush}" Text="Activo" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+            </Border>
+
+            <Border x:Name="ProductEditor" Grid.Column="1" Padding="18" Background="White" BorderBrush="{StaticResource NofarmaBorderBrush}" BorderThickness="1" CornerRadius="8" Visibility="Collapsed">
+                <ScrollViewer>
+                    <StackPanel Spacing="8">
+                        <Grid>
+                            <TextBlock FontSize="20" FontWeight="SemiBold" Text="Novo produto" />
+                            <Button HorizontalAlignment="Right" MinWidth="44" MinHeight="44" AutomationProperties.Name="Fechar formulário" Click="OnHideEditor" Content="Fechar" />
+                        </Grid>
+                        <InfoBar x:Name="ProductMessage" IsClosable="True" IsOpen="False" />
+                        <TextBlock Text="Nome comercial *" />
+                        <TextBox x:Name="ProductNameBox" MinHeight="44" />
+                        <TextBlock Text="Código interno" />
+                        <TextBox x:Name="ProductCodeBox" MinHeight="44" PlaceholderText="Gerado automaticamente se ficar vazio" />
+                        <TextBlock Text="Categoria *" />
+                        <ComboBox x:Name="ProductCategoryBox" MinHeight="44" DisplayMemberPath="Name" />
+                        <TextBlock Text="Tipo de produto" />
+                        <ComboBox x:Name="ProductTypeBox" MinHeight="44" />
+                        <TextBlock Text="Unidade base *" />
+                        <TextBox x:Name="ProductBaseUnitBox" MinHeight="44" PlaceholderText="Ex.: Comprimido, frasco, unidade" />
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Preço de venda (XOF) *" />
+                                <TextBox x:Name="ProductSalePriceBox" MinHeight="44" InputScope="Number" Text="0" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="6">
+                                <TextBlock Text="Stock mínimo" />
+                                <TextBox x:Name="ProductMinimumStockBox" MinHeight="44" InputScope="Number" />
+                            </StackPanel>
+                        </Grid>
+                        <CheckBox x:Name="ProductRequiresLotBox" Content="Controlar por lote" />
+                        <CheckBox x:Name="ProductRequiresExpiryBox" Content="Exigir validade" />
+                        <CheckBox x:Name="ProductRequiresPrescriptionBox" Content="Exige receita" />
+                        <TextBlock x:Name="ProductValidationText" Foreground="#B42318" TextWrapping="Wrap" Visibility="Collapsed" />
+                        <Button x:Name="SaveProductButton" Margin="0,8,0,0" Click="OnSaveProduct" Content="Guardar produto" Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>
