@@ -85,6 +85,9 @@ public sealed partial class AppShellPage : Page
             case "Compras":
                 ModuleContent.Content = new PurchasesPage();
                 break;
+            case "Caixa":
+                ModuleContent.Content = new CashPage();
+                break;
             case "Importação":
                 ModuleContent.Content = new InventoryImportPage();
                 break;

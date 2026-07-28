@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Nofarma.Desktop.Views.CashPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{StaticResource NofarmaCanvasBrush}"
+    Loaded="OnLoaded">
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Key="F2" Invoked="OnOpenAccelerator" />
+        <KeyboardAccelerator Key="F4" Invoked="OnCloseAccelerator" />
+    </Page.KeyboardAccelerators>
+
+    <Grid Padding="24,20" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="3">
+            <TextBlock Style="{StaticResource NofarmaHeadingStyle}" Text="Caixa" />
+            <TextBlock
+                Foreground="{StaticResource NofarmaMutedBrush}"
+                Text="Abrir turno, registar movimentos manuais e fechar turno."
+                TextWrapping="Wrap" />
+        </StackPanel>
+
+        <InfoBar
+            x:Name="CashMessage"
+            Grid.Row="1"
+            IsClosable="True"
+            IsOpen="False" />
+
+        <Grid Grid.Row="2">
+            <StackPanel
+                x:Name="LoadingPanel"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="12">
+                <ProgressRing IsActive="True" />
+                <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="A confirmar o estado do caixa..." />
+            </StackPanel>
+
+            <Border
+                x:Name="LoadErrorPanel"
+                MaxWidth="560"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="White"
+                BorderBrush="{StaticResource NofarmaBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Visibility="Collapsed">
+                <StackPanel Spacing="12">
+                    <TextBlock FontSize="20" FontWeight="SemiBold" Text="Estado do caixa não confirmado" />
+                    <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Tenta novamente antes de abrir ou fechar um turno." TextWrapping="Wrap" />
+                    <Button
+                        MinHeight="44"
+                        HorizontalAlignment="Left"
+                        AutomationProperties.Name="Voltar a consultar o turno de caixa"
+                        Click="OnRetryLoad"
+                        Content="Tentar novamente" />
+                </StackPanel>
+            </Border>
+
+            <Border
+                x:Name="NoShiftPanel"
+                MaxWidth="620"
+                Padding="24"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"
+                Background="White"
+                BorderBrush="{StaticResource NofarmaBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Visibility="Collapsed">
+                <StackPanel Spacing="12">
+                    <Border Margin="-24,-24,-24,4" Padding="16,10" Background="{StaticResource NofarmaBlueDarkBrush}" CornerRadius="8,8,0,0">
+                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="White" Text="ABRIR TURNO" />
+                    </Border>
+                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="Não existe um turno aberto" />
+                    <TextBlock
+                        Foreground="{StaticResource NofarmaMutedBrush}"
+                        Text="O turno fica associado ao utilizador e ao posto de caixa actuais."
+                        TextWrapping="Wrap" />
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Fundo inicial (XOF) *" />
+                        <TextBox
+                            x:Name="OpeningCashBox"
+                            MinHeight="44"
+                            AutomationProperties.Name="Fundo inicial do turno em XOF"
+                            InputScope="Number"
+                            LostFocus="OnOpeningCashLostFocus"
+                            TextChanged="OnOpeningCashChanged" />
+                        <TextBlock
+                            x:Name="OpeningCashError"
+                            Foreground="{StaticResource NofarmaDangerBrush}"
+                            TextWrapping="Wrap"
+                            Visibility="Collapsed" />
+                    </StackPanel>
+                    <Button
+                        x:Name="OpenShiftButton"
+                        MinWidth="220"
+                        HorizontalAlignment="Right"
+                        AutomationProperties.Name="Abrir turno de caixa, atalho F2"
+                        Click="OnOpenShift"
+                        Content="Abrir turno     F2"
+                        Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                </StackPanel>
+            </Border>
+
+            <ScrollViewer
+                x:Name="OpenShiftPanel"
+                HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto"
+                Visibility="Collapsed">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="3*" />
+                        <ColumnDefinition Width="2*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border
+                        Padding="18"
+                        Background="White"
+                        BorderBrush="{StaticResource NofarmaBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                        <StackPanel Spacing="12">
+                            <Border Margin="-18,-18,-18,0" Padding="14,9" Background="{StaticResource NofarmaBlueDarkBrush}" CornerRadius="8,8,0,0">
+                                <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="White" Text="TURNO ABERTO" />
+                            </Border>
+                            <Grid RowSpacing="8" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Data de abertura" />
+                                <TextBlock x:Name="OpenedAtText" Grid.Column="1" FontWeight="SemiBold" />
+                                <TextBlock Grid.Row="1" Foreground="{StaticResource NofarmaMutedBrush}" Text="Fundo inicial" />
+                                <TextBlock x:Name="OpeningCashText" Grid.Row="1" Grid.Column="1" FontWeight="SemiBold" />
+                                <TextBlock Grid.Row="2" Foreground="{StaticResource NofarmaMutedBrush}" Text="Actividade" />
+                                <TextBlock x:Name="MovementCountText" Grid.Row="2" Grid.Column="1" FontWeight="SemiBold" />
+                                <TextBlock Grid.Row="3" FontSize="17" FontWeight="SemiBold" Text="Dinheiro esperado" />
+                                <TextBlock x:Name="ExpectedCashText" Grid.Row="3" Grid.Column="1" FontSize="21" FontWeight="Bold" Foreground="{StaticResource NofarmaBlueBrush}" />
+                            </Grid>
+
+                            <Rectangle Height="1" Fill="{StaticResource NofarmaBorderBrush}" />
+                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Entrada ou saída manual" />
+                            <TextBlock
+                                Foreground="{StaticResource NofarmaMutedBrush}"
+                                Text="Regista apenas movimentos que não resultam de uma venda."
+                                TextWrapping="Wrap" />
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="3*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Valor (XOF) *" />
+                                    <TextBox
+                                        x:Name="MovementAmountBox"
+                                        MinHeight="44"
+                                        AutomationProperties.Name="Valor do movimento manual em XOF"
+                                        InputScope="Number"
+                                        LostFocus="OnMovementFieldLostFocus"
+                                        TextChanged="OnMovementFieldChanged" />
+                                    <TextBlock
+                                        x:Name="MovementAmountError"
+                                        Foreground="{StaticResource NofarmaDangerBrush}"
+                                        TextWrapping="Wrap"
+                                        Visibility="Collapsed" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="6">
+                                    <TextBlock Text="Motivo *" />
+                                    <TextBox
+                                        x:Name="MovementReasonBox"
+                                        MinHeight="44"
+                                        AutomationProperties.Name="Motivo do movimento manual"
+                                        LostFocus="OnMovementFieldLostFocus"
+                                        MaxLength="500"
+                                        TextChanged="OnMovementFieldChanged" />
+                                    <TextBlock
+                                        x:Name="MovementReasonError"
+                                        Foreground="{StaticResource NofarmaDangerBrush}"
+                                        TextWrapping="Wrap"
+                                        Visibility="Collapsed" />
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    x:Name="RecordExitButton"
+                                    MinHeight="44"
+                                    AutomationProperties.Name="Registar saída manual de caixa"
+                                    Click="OnRecordExit"
+                                    Content="Registar saída" />
+                                <Button
+                                    x:Name="RecordEntryButton"
+                                    MinHeight="44"
+                                    AutomationProperties.Name="Registar entrada manual de caixa"
+                                    Click="OnRecordEntry"
+                                    Content="Registar entrada"
+                                    Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        Grid.Column="1"
+                        Padding="18"
+                        VerticalAlignment="Top"
+                        Background="White"
+                        BorderBrush="{StaticResource NofarmaBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                        <StackPanel Spacing="12">
+                            <Border Margin="-18,-18,-18,0" Padding="14,9" Background="{StaticResource NofarmaBlueDarkBrush}" CornerRadius="8,8,0,0">
+                                <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="White" Text="FECHAR TURNO" />
+                            </Border>
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Dinheiro esperado" />
+                                <TextBlock x:Name="CloseExpectedCashText" Grid.Column="1" FontWeight="SemiBold" />
+                            </Grid>
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Dinheiro contado (XOF) *" />
+                                <TextBox
+                                    x:Name="CountedCashBox"
+                                    MinHeight="44"
+                                    AutomationProperties.Name="Dinheiro contado no fecho em XOF"
+                                    InputScope="Number"
+                                    LostFocus="OnCountedCashLostFocus"
+                                    TextChanged="OnCountedCashChanged" />
+                                <TextBlock
+                                    x:Name="CountedCashError"
+                                    Foreground="{StaticResource NofarmaDangerBrush}"
+                                    TextWrapping="Wrap"
+                                    Visibility="Collapsed" />
+                            </StackPanel>
+                            <Border x:Name="DifferencePanel" Padding="12" Background="{StaticResource NofarmaCanvasBrush}" CornerRadius="6">
+                                <StackPanel Spacing="3">
+                                    <TextBlock FontWeight="SemiBold" Text="Diferença" />
+                                    <TextBlock x:Name="DifferenceText" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock
+                                Foreground="{StaticResource NofarmaMutedBrush}"
+                                Text="Confirma o valor contado antes de fechar. O fecho não pode ser anulado neste ecrã."
+                                TextWrapping="Wrap" />
+                            <Button
+                                x:Name="CloseShiftButton"
+                                MinWidth="220"
+                                HorizontalAlignment="Right"
+                                AutomationProperties.Name="Fechar turno de caixa, atalho F4"
+                                Click="OnCloseShift"
+                                Content="Fechar turno     F4"
+                                Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Page>

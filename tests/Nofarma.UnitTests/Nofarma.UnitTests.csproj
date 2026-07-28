@@ -32,6 +32,7 @@
     <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\StockViewModel.cs" Link="Desktop\StockViewModel.cs" />
     <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\PurchasesViewModel.cs" Link="Desktop\PurchasesViewModel.cs" />
     <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\InventoryImportViewModel.cs" Link="Desktop\InventoryImportViewModel.cs" />
+    <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\CashViewModel.cs" Link="Desktop\CashViewModel.cs" />
   </ItemGroup>
 
 </Project>

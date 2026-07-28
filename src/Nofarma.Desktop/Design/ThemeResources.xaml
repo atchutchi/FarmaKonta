@@ -5,6 +5,11 @@
     <Color x:Key="NofarmaBlueColor">#0057B8</Color>
     <Color x:Key="NofarmaBlueDarkColor">#003D82</Color>
     <Color x:Key="NofarmaGreenColor">#10984A</Color>
+    <Color x:Key="NofarmaWarningColor">#B54708</Color>
+    <Color x:Key="NofarmaDangerColor">#B42318</Color>
+    <Color x:Key="NofarmaSuccessSoftColor">#EAF8EF</Color>
+    <Color x:Key="NofarmaWarningSoftColor">#FFF4E5</Color>
+    <Color x:Key="NofarmaDangerSoftColor">#FDECEC</Color>
     <Color x:Key="NofarmaCanvasColor">#F5F8FC</Color>
     <Color x:Key="NofarmaTextColor">#172033</Color>
     <Color x:Key="NofarmaMutedColor">#5F6B7A</Color>
@@ -12,6 +17,11 @@
     <SolidColorBrush x:Key="NofarmaBlueBrush" Color="{StaticResource NofarmaBlueColor}" />
     <SolidColorBrush x:Key="NofarmaBlueDarkBrush" Color="{StaticResource NofarmaBlueDarkColor}" />
     <SolidColorBrush x:Key="NofarmaGreenBrush" Color="{StaticResource NofarmaGreenColor}" />
+    <SolidColorBrush x:Key="NofarmaWarningBrush" Color="{StaticResource NofarmaWarningColor}" />
+    <SolidColorBrush x:Key="NofarmaDangerBrush" Color="{StaticResource NofarmaDangerColor}" />
+    <SolidColorBrush x:Key="NofarmaSuccessSoftBrush" Color="{StaticResource NofarmaSuccessSoftColor}" />
+    <SolidColorBrush x:Key="NofarmaWarningSoftBrush" Color="{StaticResource NofarmaWarningSoftColor}" />
+    <SolidColorBrush x:Key="NofarmaDangerSoftBrush" Color="{StaticResource NofarmaDangerSoftColor}" />
     <SolidColorBrush x:Key="NofarmaCanvasBrush" Color="{StaticResource NofarmaCanvasColor}" />
     <SolidColorBrush x:Key="NofarmaTextBrush" Color="{StaticResource NofarmaTextColor}" />
     <SolidColorBrush x:Key="NofarmaMutedBrush" Color="{StaticResource NofarmaMutedColor}" />
