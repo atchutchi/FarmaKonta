@@ -30,7 +30,8 @@ public sealed class SqliteCashShiftStore(
                 on user.PharmacyId equals installation.PharmacyId
             where user.Id == userId.Value &&
                 user.Status == (int)UserStatus.Active &&
-                installation.Status == (int)InstallationStatus.Active
+                (installation.Status == (int)InstallationStatus.ReadyForActivation ||
+                    installation.Status == (int)InstallationStatus.Active)
             select new
             {
                 user.PharmacyId,

@@ -20,6 +20,53 @@ namespace Nofarma.IntegrationTests.Sales;
 public sealed class CashShiftTransactionTests
 {
     [Fact]
+    public async Task ReadyForActivationInstallationCanReadAnEmptyCurrentShift()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using CashTestDatabase fixture = await CashTestDatabase.CreateAsync();
+        await using (var setup = new NofarmaDbContext(fixture.Options))
+        {
+            await setup.Installations.ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    installation => installation.Status,
+                    (int)InstallationStatus.ReadyForActivation),
+                cancellationToken);
+        }
+        var store = new SqliteCashShiftStore(fixture.Options);
+        CashShiftService service = CashTestDatabase.CreateService(store);
+
+        CashShiftSummary? current = await service.GetCurrentAsync(
+            fixture.Session(),
+            cancellationToken);
+
+        Assert.Null(current);
+    }
+
+    [Theory]
+    [InlineData(InstallationStatus.NotConfigured)]
+    [InlineData(InstallationStatus.Preparing)]
+    public async Task IncompleteInstallationCannotResolveCashContext(
+        InstallationStatus status)
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using CashTestDatabase fixture = await CashTestDatabase.CreateAsync();
+        await using (var setup = new NofarmaDbContext(fixture.Options))
+        {
+            await setup.Installations.ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    installation => installation.Status,
+                    (int)status),
+                cancellationToken);
+        }
+        var store = new SqliteCashShiftStore(fixture.Options);
+        CashShiftService service = CashTestDatabase.CreateService(store);
+
+        await Assert.ThrowsAsync<AuthorizationException>(() => service.GetCurrentAsync(
+            fixture.Session(),
+            cancellationToken));
+    }
+
+    [Fact]
     public async Task DifferentDevicesCanOpenIndependentShifts()
     {
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;

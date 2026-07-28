@@ -4,7 +4,7 @@ Fonte visual: `docs/design/previews/02-dashboard-sales-invoices-cash.png`, paine
 
 Implementação: `src/Nofarma.Desktop/Views/CashPage.xaml`.
 
-Captura da implementação: não disponível. As duas instâncias abertas da aplicação permanecem no ecrã `NôFarma | Acesso local`. A autenticação não foi automatizada e não foram criadas credenciais, turnos ou valores operacionais artificiais.
+Captura da implementação: a página Caixa actualizada foi inspeccionada depois do início de sessão manual no tamanho físico aprovado. A primeira consulta mostrou um estado de erro real, reproduzido pelo botão de repetição. A causa foi corrigida e verificada por testes. A versão corrigida ainda não foi capturada porque o Windows manteve activa a instância autenticada anterior.
 
 Viewport pretendido: 1366 por 768, tema claro, escala do sistema não confirmada.
 
@@ -14,7 +14,7 @@ Estado pretendido: sem turno, turno aberto, validação de movimentos e pré-vis
 
 ## Evidência de comparação
 
-A fonte visual foi aberta e inspeccionada. A implementação não pôde ser capturada depois da autenticação. Por isso, não existe comparação visual válida do ecrã completo nem das regiões focadas.
+A fonte visual foi aberta e inspeccionada. A implementação foi capturada no estado de erro a 1366 por 768 físicos, equivalente a cerca de 1080 por 608 lógicos com escala de 125 por cento. O layout não apresentou cortes visíveis nesse estado. Falta comparar os estados funcionais da versão corrigida.
 
 ## Superfícies de fidelidade
 
@@ -34,7 +34,7 @@ Os testes e a leitura do código confirmam validação, bloqueio de dupla submis
 
 ## Pendência
 
-Iniciar sessão manualmente numa janela NôFarma já aberta. Depois abrir Caixa e capturar os estados reais disponíveis a 1366 por 768. A fonte e a captura devem ser colocadas na mesma comparação. Qualquer diferença P0, P1 ou P2 deve ser corrigida e comparada novamente.
+Reiniciar uma instância NôFarma para carregar o binário corrigido, iniciar sessão manualmente e capturar os estados reais disponíveis a 1366 por 768. A fonte e a captura devem ser colocadas na mesma comparação. Qualquer diferença P0, P1 ou P2 deve ser corrigida e comparada novamente.
 
 final result: blocked
 
