@@ -11,6 +11,7 @@ using Nofarma.Application.Identity.Users;
 using Nofarma.Application.Inventory;
 using Nofarma.Application.Inventory.Import;
 using Nofarma.Application.Purchasing;
+using Nofarma.Application.Sales;
 using Nofarma.Application.Supply;
 using Nofarma.Infrastructure.Import;
 using Nofarma.Infrastructure.Licensing;
@@ -51,6 +52,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISupplierStore, SqliteSupplierStore>();
         services.AddSingleton<IPurchaseStore, SqlitePurchaseStore>();
         services.AddSingleton<IInventoryImportStore, SqliteInventoryImportStore>();
+        services.AddSingleton<ICashShiftStore, SqliteCashShiftStore>();
         services.AddSingleton<IInventoryFileReader, InventoryFileReader>();
         services.AddSingleton<IInventoryImportErrorWriter, OpenXmlInventoryImportErrorWriter>();
         services.AddSingleton<IStockOperationPolicy, InstallationStockOperationPolicy>();
@@ -70,6 +72,7 @@ public static class ServiceCollectionExtensions
         services.AddTransient<SupplierService>();
         services.AddTransient<PurchaseService>();
         services.AddTransient<InventoryImportService>();
+        services.AddTransient<CashShiftService>();
         services.AddSingleton(provider =>
         {
             ICredentialHasher hasher = provider.GetRequiredService<ICredentialHasher>();

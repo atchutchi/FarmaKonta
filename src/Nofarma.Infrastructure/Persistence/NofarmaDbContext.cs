@@ -22,6 +22,14 @@ public sealed class NofarmaDbContext(DbContextOptions<NofarmaDbContext> options)
 
     public DbSet<AuditEventRecord> AuditEvents => Set<AuditEventRecord>();
 
+    public DbSet<CashShiftRecord> CashShifts => Set<CashShiftRecord>();
+
+    public DbSet<CashMovementRecord> CashMovements => Set<CashMovementRecord>();
+
+    public DbSet<CashCommandRecord> CashCommands => Set<CashCommandRecord>();
+
+    public DbSet<OutboxEventRecord> OutboxEvents => Set<OutboxEventRecord>();
+
     public DbSet<ProductCategoryRecord> ProductCategories => Set<ProductCategoryRecord>();
 
     public DbSet<ProductRecord> Products => Set<ProductRecord>();
@@ -85,6 +93,22 @@ public sealed class NofarmaDbContext(DbContextOptions<NofarmaDbContext> options)
         if (hasStockMovementMutation)
         {
             throw new InvalidOperationException("Stock movements are append-only.");
+        }
+
+        bool hasCashMovementMutation = ChangeTracker
+            .Entries<CashMovementRecord>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted);
+        if (hasCashMovementMutation)
+        {
+            throw new InvalidOperationException("Cash movements are append-only.");
+        }
+
+        bool hasCashCommandMutation = ChangeTracker
+            .Entries<CashCommandRecord>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted);
+        if (hasCashCommandMutation)
+        {
+            throw new InvalidOperationException("Cash commands are append-only.");
         }
     }
 }

@@ -178,6 +178,7 @@ git commit -m "feat: add cash shift use cases"
 - Create: `src/Nofarma.Infrastructure/Persistence/Records/CashCommandRecord.cs`
 - Create: `src/Nofarma.Infrastructure/Persistence/Records/OutboxEventRecord.cs`
 - Create: `src/Nofarma.Infrastructure/Persistence/Configurations/CashShiftConfigurations.cs`
+- Modify: `src/Nofarma.Infrastructure/Persistence/Configurations/DeviceConfiguration.cs`
 - Create: `src/Nofarma.Infrastructure/Persistence/SqliteCashShiftStore.cs`
 - Modify: `src/Nofarma.Infrastructure/Persistence/NofarmaDbContext.cs`
 - Modify: `src/Nofarma.Infrastructure/Composition/ServiceCollectionExtensions.cs`
@@ -190,25 +191,25 @@ git commit -m "feat: add cash shift use cases"
 - Consumes: `ICashShiftStore`, `CashShift` and `CashMovement`.
 - Produces: durable, idempotent and pharmacy-scoped cash commands.
 
-- [ ] **Step 1: Write failing integration tests**
+- [x] **Step 1: Write failing integration tests**
 
-Open two different devices successfully. Reject a second open shift on the same pharmacy and device. Return the original immutable result snapshot for an identical duplicate idempotency key. Reject reuse of the key with a different fingerprint. Run concurrent identical requests and prove that one command result is stored. Run two different concurrent movements against the same shift and prove that both movements and their combined expected cash are preserved. Force an audit foreign-key failure and assert that no shift, command or outbox row remains.
+Open two different devices successfully. Reject a second open shift on the same pharmacy and device. Return the original immutable result snapshot for an identical duplicate idempotency key. Reject reuse of the key with a different fingerprint. Run concurrent identical requests and prove that one command result is stored. Run two different concurrent movements against the same shift and prove that both movements and their combined expected cash are preserved. Force an audit database failure and assert that no shift, command or outbox row remains. Verify audit actor, metadata and timestamp, command-movement type coherence, device and actor pharmacy membership, active actor status, outbox privacy, equal-timestamp movement order, closing and reopening and append-only cash commands and movements. Upgrade a database from the previous migration and preserve its installation data.
 
-- [ ] **Step 2: Run the focused integration tests and verify RED**
+- [x] **Step 2: Run the focused integration tests and verify RED**
 
 Run: `dotnet test tests/Nofarma.IntegrationTests/Nofarma.IntegrationTests.csproj --filter "FullyQualifiedName~CashShiftTransactionTests"`
 
-- [ ] **Step 3: Implement records, constraints and immediate transactions**
+- [x] **Step 3: Implement records, constraints and immediate transactions**
 
-Create a filtered unique index on `(PharmacyId, DeviceId)` where `Status = 1`. Add `RowVersion` to `CashShiftRecord`. Movement and close updates use compare-and-swap with `WHERE Id = shiftId AND RowVersion = expectedVersion`, update the monetary state and increment the version. Zero affected rows raise `CashShiftConcurrencyException`, allowing the service to reload and retry without losing either command. `CashCommandRecord` stores pharmacy, key, operation type, request fingerprint, shift identifier and an immutable result snapshot. Create a unique index on `(PharmacyId, IdempotencyKey)`. Limit keys to 160 characters and movement reasons to 500 characters in both validation and EF configuration. Use `SqliteConnection.BeginTransaction(deferred: false)` and attach it with `Database.UseTransaction`. Store outbox payloads containing identifiers, amounts and timestamps only.
+Create a filtered unique index on `(PharmacyId, DeviceId)` where `Status = 1`. Remove the previous unique constraint on `Devices.PharmacyId`, because a pharmacy can have several devices while the local installation remains singular. Add `RowVersion` to `CashShiftRecord`. Persist each movement with the resulting aggregate version as a unique per-shift sequence, so equal timestamps cannot invert valid operations during reconstruction. Movement and close updates use compare-and-swap with `WHERE Id = shiftId AND RowVersion = expectedVersion`, update the monetary state and increment the version. Zero affected rows raise `CashShiftConcurrencyException`, allowing the service to reload and retry without losing either command. `CashCommandRecord` stores pharmacy, key, operation type, request fingerprint, shift identifier and an immutable result snapshot. Create a unique index on `(PharmacyId, IdempotencyKey)`. Limit keys to 160 characters and movement reasons to 500 characters in both validation and EF configuration. Use `SqliteConnection.BeginTransaction(deferred: false)` and attach it with `Database.UseTransaction`. Validate the persisted pharmacy, device and active actor context. Store outbox payloads containing operational identifiers, amounts and timestamps only, without user identifiers or free text.
 
-- [ ] **Step 4: Generate the migration and run integration tests**
+- [x] **Step 4: Generate the migration and run integration tests**
 
-Run: `dotnet ef migrations add AddCashShifts --project src/Nofarma.Infrastructure --startup-project src/Nofarma.Api --context NofarmaDbContext`
+Run: `dotnet ef migrations add AddCashShifts --project src/Nofarma.Infrastructure --startup-project src/Nofarma.Infrastructure --context NofarmaDbContext`
 
 Run: `dotnet test tests/Nofarma.IntegrationTests/Nofarma.IntegrationTests.csproj --configuration Release`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/Nofarma.Infrastructure tests/Nofarma.IntegrationTests/Sales

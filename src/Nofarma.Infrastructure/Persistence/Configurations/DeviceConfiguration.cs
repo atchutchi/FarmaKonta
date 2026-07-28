@@ -11,6 +11,6 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<DeviceRecord>
         builder.ToTable("Devices");
         builder.HasKey(record => record.Id);
         builder.Property(record => record.Name).HasMaxLength(128).IsRequired();
-        builder.HasIndex(record => record.PharmacyId).IsUnique();
+        builder.HasIndex(record => record.PharmacyId);
     }
 }
