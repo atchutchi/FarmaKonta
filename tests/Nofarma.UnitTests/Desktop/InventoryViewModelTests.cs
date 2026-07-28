@@ -1,5 +1,6 @@
 using Nofarma.Application.Catalog;
 using Nofarma.Application.Inventory;
+using Nofarma.Application.Inventory.Import;
 using Nofarma.Application.Purchasing;
 using Nofarma.Application.Supply;
 using Nofarma.Desktop.ViewModels;
@@ -102,6 +103,45 @@ public sealed class InventoryViewModelTests
         Assert.Contains("Custo", viewModel.ValidationErrors.Keys);
     }
 
+    [Fact]
+    public async Task InventoryImportKeepsMappingsWhenReturningToPreviousStep()
+    {
+        var operations = new ImportOperations();
+        var viewModel = new InventoryImportViewModel(operations);
+
+        await viewModel.PrepareFileAsync("inventario.csv", null, TestContext.Current.CancellationToken);
+        viewModel.SetMapping(ImportColumn.CommercialName, "Nome");
+        viewModel.SetMapping(ImportColumn.BaseUnit, "Unidade");
+        viewModel.SetMapping(ImportColumn.InitialQuantity, "Quantidade");
+        await viewModel.CreateDraftAsync(TestContext.Current.CancellationToken);
+        viewModel.GoBack();
+
+        Assert.Equal(InventoryImportStep.Mapping, viewModel.Step);
+        Assert.Equal("Nome", viewModel.ColumnMappings[ImportColumn.CommercialName]);
+        Assert.Equal("Unidade", viewModel.ColumnMappings[ImportColumn.BaseUnit]);
+        Assert.Equal("Quantidade", viewModel.ColumnMappings[ImportColumn.InitialQuantity]);
+    }
+
+    [Fact]
+    public async Task InventoryImportBlockedConfirmationKeepsDraftAndShowsSafeLicenseMessage()
+    {
+        var operations = new ImportOperations { BlockConfirmation = true };
+        var viewModel = new InventoryImportViewModel(operations);
+        await viewModel.PrepareFileAsync("inventario.csv", null, TestContext.Current.CancellationToken);
+        viewModel.SetMapping(ImportColumn.CommercialName, "Nome");
+        viewModel.SetMapping(ImportColumn.BaseUnit, "Unidade");
+        viewModel.SetMapping(ImportColumn.InitialQuantity, "Quantidade");
+        await viewModel.CreateDraftAsync(TestContext.Current.CancellationToken);
+        viewModel.ContinueToConfirmation();
+
+        bool confirmed = await viewModel.ConfirmAsync(true, TestContext.Current.CancellationToken);
+
+        Assert.False(confirmed);
+        Assert.NotNull(viewModel.Draft);
+        Assert.Contains("licença", viewModel.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("STOCK_CONFIRMATION_BLOCKED", viewModel.ErrorMessage, StringComparison.Ordinal);
+    }
+
     private static ProductSummary Product(string code, string name) => new(
         EntityId.New(), code, name, ProductType.General, "Unidade", 100, false, false, true, null);
 
@@ -156,5 +196,22 @@ public sealed class InventoryViewModelTests
         public Task<IReadOnlyList<PurchaseSummary>> SearchAsync(string query, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<PurchaseSummary>>([]);
         public Task<PurchaseDetails> GetAsync(EntityId purchaseId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task ConfirmReceiptAsync(EntityId purchaseId, ConfirmPurchaseReceiptRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class ImportOperations : IInventoryImportPageOperations
+    {
+        public bool BlockConfirmation { get; init; }
+
+        public Task<InventoryImportFilePreview> InspectAsync(string filePath, string? worksheetName, CancellationToken cancellationToken) =>
+            Task.FromResult(new InventoryImportFilePreview(filePath, null, [], ["Nome", "Unidade", "Quantidade"]));
+
+        public Task<InventoryImportDraft> CreateDraftAsync(string filePath, string? worksheetName, IReadOnlyDictionary<ImportColumn, string> mappings, CancellationToken cancellationToken) =>
+            Task.FromResult(new InventoryImportDraft(EntityId.New(), "inventario.csv", null, InventoryImportStatus.Draft, 1, 1, 0,
+                [new InventoryImportDraftRow(EntityId.New(), 2, new InventoryImportNormalizedRow("P-1", null, "Produto", null, null, null, null, "Geral", ProductType.General, "Unidade", "Unidade", 1, 0, 100, 1, 2, null, null, null, null, false), InventoryImportMatchType.NewProduct, null, InventoryImportRowStatus.Valid, [])]));
+
+        public Task<InventoryImportConfirmationResult> ConfirmAsync(EntityId importId, string idempotencyKey, CancellationToken cancellationToken) =>
+            BlockConfirmation
+                ? Task.FromException<InventoryImportConfirmationResult>(new StockOperationBlockedException("STOCK_CONFIRMATION_BLOCKED"))
+                : Task.FromResult(new InventoryImportConfirmationResult(importId, 1, 1, false));
     }
 }

@@ -37,6 +37,7 @@
                     <Button Tag="Facturas" Click="OnNavigate" Content="Facturas" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button Tag="Produtos" Click="OnNavigate" Content="Produtos" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button Tag="Stock" Click="OnNavigate" Content="Stock" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button x:Name="InventoryImportButton" Tag="Importação" Click="OnNavigate" Content="Importar inventário" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button Tag="Compras" Click="OnNavigate" Content="Compras" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button Tag="Fornecedores" Click="OnNavigate" Content="Fornecedores" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button Tag="Caixa" Click="OnNavigate" Content="Caixa" Style="{StaticResource ShellNavigationButtonStyle}" />
@@ -61,6 +62,7 @@
                 <TextBlock Foreground="#FFE082" Text="● Sem internet" />
                 <TextBlock Foreground="White" Text="Dados locais" />
                 <TextBlock Foreground="#FFE082" Text="Activação pendente" />
+                <TextBlock x:Name="StockAlertText" Foreground="White" Visibility="Collapsed" />
             </StackPanel>
             <Button
                 HorizontalAlignment="Right"

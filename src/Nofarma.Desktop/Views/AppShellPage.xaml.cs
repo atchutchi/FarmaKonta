@@ -5,6 +5,7 @@ using Nofarma.Application.Abstractions;
 using Nofarma.Application.Configuration;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Desktop.Services;
+using Nofarma.Desktop.ViewModels;
 using Nofarma.Domain.Identity;
 
 namespace Nofarma.Desktop.Views;
@@ -51,6 +52,16 @@ public sealed partial class AppShellPage : Page
         AuditButton.Visibility = RolePermissions.IsAllowed(session.Role, Capability.ViewAudit)
             ? Visibility.Visible
             : Visibility.Collapsed;
+        InventoryImportButton.Visibility = RolePermissions.IsAllowed(session.Role, Capability.ImportInventory)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        var stock = App.Services.GetRequiredService<StockViewModel>();
+        await stock.LoadAsync(CancellationToken.None);
+        if (stock.ErrorMessage is null)
+        {
+            StockAlertText.Text = $"Stock: {stock.LowStockProducts} baixo, {stock.OutOfStockProducts} esgotado, {stock.ExpiryAttentionLots} validade";
+            StockAlertText.Visibility = Visibility.Visible;
+        }
         ShowEmpty("Painel", "A visão operacional será preenchida apenas com vendas, stock e caixa registados nesta instalação.");
     }
 
@@ -74,6 +85,9 @@ public sealed partial class AppShellPage : Page
                 break;
             case "Compras":
                 ModuleContent.Content = new PurchasesPage();
+                break;
+            case "Importação":
+                ModuleContent.Content = new InventoryImportPage();
                 break;
             case "Utilizadores":
                 ModuleContent.Content = new UsersPage();
