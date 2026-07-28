@@ -18,6 +18,10 @@ public static class ServiceCollectionExtensions
         services.AddTransient<ProductsViewModel>();
         services.AddTransient<ISupplierPageOperations, SupplierPageOperations>();
         services.AddTransient<SuppliersViewModel>();
+        services.AddTransient<IStockPageOperations, StockPageOperations>();
+        services.AddTransient<StockViewModel>();
+        services.AddTransient<IPurchasesPageOperations, PurchasesPageOperations>();
+        services.AddTransient<PurchasesViewModel>();
         return services;
     }
 }

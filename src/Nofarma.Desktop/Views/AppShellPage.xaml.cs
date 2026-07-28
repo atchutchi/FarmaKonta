@@ -69,6 +69,12 @@ public sealed partial class AppShellPage : Page
             case "Fornecedores":
                 ModuleContent.Content = new SuppliersPage();
                 break;
+            case "Stock":
+                ModuleContent.Content = new StockPage();
+                break;
+            case "Compras":
+                ModuleContent.Content = new PurchasesPage();
+                break;
             case "Utilizadores":
                 ModuleContent.Content = new UsersPage();
                 break;

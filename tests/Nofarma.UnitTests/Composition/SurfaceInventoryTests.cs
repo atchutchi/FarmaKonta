@@ -5,6 +5,8 @@ public sealed class SurfaceInventoryTests
     [Theory]
     [InlineData("ProductsPage.xaml", "Produtos")]
     [InlineData("SuppliersPage.xaml", "Fornecedores")]
+    [InlineData("StockPage.xaml", "Stock")]
+    [InlineData("PurchasesPage.xaml", "Compras")]
     public void InventorySurfacesExistWithRealEmptyStates(string fileName, string title)
     {
         string root = FindRepositoryRoot();
@@ -27,6 +29,8 @@ public sealed class SurfaceInventoryTests
 
         Assert.Contains("new ProductsPage()", code, StringComparison.Ordinal);
         Assert.Contains("new SuppliersPage()", code, StringComparison.Ordinal);
+        Assert.Contains("new StockPage()", code, StringComparison.Ordinal);
+        Assert.Contains("new PurchasesPage()", code, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

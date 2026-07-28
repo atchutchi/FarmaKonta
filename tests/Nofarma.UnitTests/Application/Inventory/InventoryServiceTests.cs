@@ -276,6 +276,12 @@ public sealed class InventoryServiceTests
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<StockAllocation>>(
                 [new(EntityId.New(), requiredQuantityBase)]);
+
+        public Task<StockOverview> SearchStockAsync(
+            EntityId pharmacyId,
+            string query,
+            DateOnly businessDate,
+            CancellationToken cancellationToken) => Task.FromResult(new StockOverview([], 0, 0, 0));
     }
 
     private sealed class StockPolicy(bool allowed) : IStockOperationPolicy

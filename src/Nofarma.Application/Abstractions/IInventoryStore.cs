@@ -34,6 +34,12 @@ public interface IInventoryStore
         DateOnly businessDate,
         CancellationToken cancellationToken);
 
+    Task<StockOverview> SearchStockAsync(
+        EntityId pharmacyId,
+        string query,
+        DateOnly businessDate,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<StockAllocation>> AllocateFefoAsync(
         EntityId pharmacyId,
         EntityId productId,

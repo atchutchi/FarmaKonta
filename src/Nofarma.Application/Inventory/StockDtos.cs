@@ -57,3 +57,22 @@ public sealed record ProductStockDetails(
     StockAlertLevel StockAlertLevel,
     IReadOnlyList<StockLotSummary> Lots,
     IReadOnlyList<StockMovementSummary> Movements);
+
+public sealed record StockOverviewItem(
+    EntityId ProductId,
+    string ProductCode,
+    string ProductName,
+    EntityId? LotId,
+    string LotNumber,
+    long AvailableQuantityBase,
+    string BaseUnit,
+    DateOnly? ExpiryDate,
+    string? SupplierName,
+    StockAlertLevel StockAlertLevel,
+    StockAlertLevel ExpiryAlertLevel);
+
+public sealed record StockOverview(
+    IReadOnlyList<StockOverviewItem> Items,
+    int LowStockProducts,
+    int OutOfStockProducts,
+    int ExpiryAttentionLots);

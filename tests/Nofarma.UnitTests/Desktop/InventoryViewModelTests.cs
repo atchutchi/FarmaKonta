@@ -1,8 +1,11 @@
 using Nofarma.Application.Catalog;
+using Nofarma.Application.Inventory;
+using Nofarma.Application.Purchasing;
 using Nofarma.Application.Supply;
 using Nofarma.Desktop.ViewModels;
 using Nofarma.Domain.Catalog;
 using Nofarma.Domain.Common;
+using Nofarma.Domain.Inventory;
 
 namespace Nofarma.UnitTests.Desktop;
 
@@ -69,6 +72,36 @@ public sealed class InventoryViewModelTests
         Assert.Equal(1, operations.CreateCalls);
     }
 
+    [Fact]
+    public async Task StockLoadExposesOnlyRealAlertCounts()
+    {
+        var operations = new StockOperations(new StockOverview(
+            [new StockOverviewItem(EntityId.New(), "P-01", "Produto", null, "Sem lote", 0, "Unidade", null, null, StockAlertLevel.OutOfStock, StockAlertLevel.Normal)],
+            0, 1, 0));
+        var viewModel = new StockViewModel(operations);
+
+        await viewModel.LoadAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, viewModel.OutOfStockProducts);
+        Assert.Equal(0, viewModel.LowStockProducts);
+        Assert.Single(viewModel.Items);
+    }
+
+    [Fact]
+    public void PurchaseReceiptRequiresLotExpiryCostAndQuantity()
+    {
+        var viewModel = new PurchasesViewModel(new PurchaseOperations());
+
+        bool valid = viewModel.ValidateReceipt(new PurchaseReceiptEditorInput(
+            EntityId.New(), "REC-1", "", "", "", ""));
+
+        Assert.False(valid);
+        Assert.Contains("Lote", viewModel.ValidationErrors.Keys);
+        Assert.Contains("Validade", viewModel.ValidationErrors.Keys);
+        Assert.Contains("Quantidade", viewModel.ValidationErrors.Keys);
+        Assert.Contains("Custo", viewModel.ValidationErrors.Keys);
+    }
+
     private static ProductSummary Product(string code, string name) => new(
         EntityId.New(), code, name, ProductType.General, "Unidade", 100, false, false, true, null);
 
@@ -111,5 +144,17 @@ public sealed class InventoryViewModelTests
         }
 
         public void CompleteCreate() => _create.SetResult();
+    }
+
+    private sealed class StockOperations(StockOverview overview) : IStockPageOperations
+    {
+        public Task<StockOverview> SearchAsync(string query, CancellationToken cancellationToken) => Task.FromResult(overview);
+    }
+
+    private sealed class PurchaseOperations : IPurchasesPageOperations
+    {
+        public Task<IReadOnlyList<PurchaseSummary>> SearchAsync(string query, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<PurchaseSummary>>([]);
+        public Task<PurchaseDetails> GetAsync(EntityId purchaseId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task ConfirmReceiptAsync(EntityId purchaseId, ConfirmPurchaseReceiptRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

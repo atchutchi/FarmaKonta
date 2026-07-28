@@ -274,6 +274,81 @@ public sealed class SqliteInventoryStore(
             movementDetails);
     }
 
+    public async Task<StockOverview> SearchStockAsync(
+        EntityId pharmacyId,
+        string query,
+        DateOnly businessDate,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = new NofarmaDbContext(options);
+        string normalizedQuery = query.Trim().ToUpperInvariant();
+        var records = await (
+            from product in dbContext.Products.AsNoTracking()
+            where product.PharmacyId == pharmacyId.Value
+                && product.IsActive
+                && (normalizedQuery == string.Empty
+                    || product.NormalizedCode.Contains(normalizedQuery)
+                    || EF.Functions.Like(product.Name, $"%{query.Trim()}%"))
+            join lotRecord in dbContext.StockLots.AsNoTracking()
+                on product.Id equals lotRecord.ProductId into productLots
+            from lot in productLots.DefaultIfEmpty()
+            join supplierRecord in dbContext.Suppliers.AsNoTracking()
+                on lot.SupplierId equals supplierRecord.Id into lotSuppliers
+            from supplier in lotSuppliers.DefaultIfEmpty()
+            select new
+            {
+                product.Id,
+                product.Code,
+                product.Name,
+                product.BaseUnit,
+                product.MinimumStockBase,
+                LotId = lot == null ? (Guid?)null : lot.Id,
+                LotNumber = lot == null ? null : lot.Number,
+                Quantity = lot == null ? 0 : lot.AvailableQuantityBase,
+                ExpiryYear = lot == null ? null : lot.ExpiryYear,
+                ExpiryMonth = lot == null ? null : lot.ExpiryMonth,
+                ExpiryDay = lot == null ? null : lot.ExpiryDay,
+                SupplierName = supplier == null ? null : supplier.Name,
+                FirstEntry = lot == null ? (DateTimeOffset?)null : lot.FirstEntryAtUtc
+            }).ToArrayAsync(cancellationToken);
+
+        var productAlerts = records.GroupBy(record => record.Id).ToDictionary(
+            group => group.Key,
+            group => StockAlertCalculator.CalculateStock(
+                group.Sum(record => record.Quantity),
+                group.First().MinimumStockBase));
+        StockOverviewItem[] items = records.Select(record =>
+        {
+            ExpiryDate? expiry = record.ExpiryYear is int year && record.ExpiryMonth is int month
+                ? record.ExpiryDay is int day
+                    ? ExpiryDate.ForDay(year, month, day)
+                    : ExpiryDate.ForMonth(year, month)
+                : null;
+            StockAlertLevel expiryLevel = StockAlertCalculator.CalculateExpiry(expiry, businessDate).Level;
+            return new StockOverviewItem(
+                new EntityId(record.Id),
+                record.Code,
+                record.Name,
+                record.LotId is Guid lotId ? new EntityId(lotId) : null,
+                record.LotNumber ?? "Sem lote",
+                record.Quantity,
+                record.BaseUnit,
+                expiry?.BlockingDate,
+                record.SupplierName,
+                productAlerts[record.Id].Level,
+                expiryLevel);
+        }).OrderByDescending(item => item.ExpiryAlertLevel)
+            .ThenBy(item => item.ExpiryDate)
+            .ThenBy(item => item.ProductName)
+            .ToArray();
+
+        return new StockOverview(
+            items,
+            productAlerts.Count(pair => pair.Value.Level == StockAlertLevel.LowStock),
+            productAlerts.Count(pair => pair.Value.Level == StockAlertLevel.OutOfStock),
+            items.Count(item => item.ExpiryAlertLevel >= StockAlertLevel.ExpiryAttention));
+    }
+
     public async Task<IReadOnlyList<StockAllocation>> AllocateFefoAsync(
         EntityId pharmacyId,
         EntityId productId,

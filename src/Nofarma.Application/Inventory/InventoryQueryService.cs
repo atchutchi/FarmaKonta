@@ -12,6 +12,22 @@ public sealed class InventoryQueryService(
     AuthorizationService authorization,
     IUtcClock clock)
 {
+    public async Task<StockOverview> SearchAsync(
+        LocalSession actor,
+        string? query,
+        CancellationToken cancellationToken)
+    {
+        authorization.EnsureAllowed(actor, Capability.ViewStock);
+        InventoryActorContext context = await store.GetContextAsync(actor.UserId, cancellationToken)
+            ?? throw new AuthorizationException("A sessão actual deixou de ser válida.");
+        DateOnly businessDate = DateOnly.FromDateTime(clock.GetCurrentInstant().Value.UtcDateTime);
+        return await store.SearchStockAsync(
+            context.PharmacyId,
+            query?.Trim() ?? string.Empty,
+            businessDate,
+            cancellationToken);
+    }
+
     public async Task<ProductStockDetails> GetProductAsync(
         LocalSession actor,
         EntityId productId,
