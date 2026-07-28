@@ -1,72 +1,81 @@
-# NôFarma inventory design QA
+# NôFarma design QA
+
+Fonte visual: `docs/design/previews/02-dashboard-sales-invoices-cash.png`, painel inferior direito “4. CAIXA - ABRIR TURNO E FECHAR TURNO”.
+
+Implementação: `src/Nofarma.Desktop/Views/CashPage.xaml`.
+
+Captura da implementação: não disponível. As duas instâncias abertas da aplicação permanecem no ecrã `NôFarma | Acesso local`. A autenticação não foi automatizada e não foram criadas credenciais, turnos ou valores operacionais artificiais.
+
+Viewport pretendido: 1366 por 768, tema claro, escala do sistema não confirmada.
+
+Dimensões da fonte: 1536 por 1024 píxeis. O painel Caixa ocupa o quadrante inferior direito da composição. Não existe captura normalizada da implementação para comparação de densidade.
+
+Estado pretendido: sem turno, turno aberto, validação de movimentos e pré-visualização do fecho.
+
+## Evidência de comparação
+
+A fonte visual foi aberta e inspeccionada. A implementação não pôde ser capturada depois da autenticação. Por isso, não existe comparação visual válida do ecrã completo nem das regiões focadas.
+
+## Superfícies de fidelidade
+
+Tipografia: o código usa os recursos existentes de Segoe UI Variable. A fidelidade renderizada ainda não foi confirmada.
+
+Espaçamento e composição: o XAML segue a divisão do mockup entre resumo e movimentos à esquerda e fecho à direita. A ausência de cortes a 1366 por 768 ainda não foi confirmada.
+
+Cores e tokens: o azul e os estados semânticos usam os recursos do projecto. O texto verde de sucesso tem contraste calculado de 4,96:1 sobre o fundo suave. A aparência renderizada ainda não foi comparada.
+
+Imagens e recursos: o ecrã Caixa não contém imagens específicas além dos recursos da aplicação existentes.
+
+Texto e conteúdo: rótulos, XOF, F2, F4, entradas, saídas, esperado, contado e diferença estão implementados. Os valores vêm do estado local e não de dados de demonstração.
+
+## Interacções e acessibilidade
+
+Os testes e a leitura do código confirmam validação, bloqueio de dupla submissão, atalhos F2 e F4, nomes de automação e mensagens textuais para a diferença. O percurso real por teclado, o foco visível e os estados renderizados não foram inspeccionados.
+
+## Pendência
+
+Iniciar sessão manualmente numa janela NôFarma já aberta. Depois abrir Caixa e capturar os estados reais disponíveis a 1366 por 768. A fonte e a captura devem ser colocadas na mesma comparação. Qualquer diferença P0, P1 ou P2 deve ser corrigida e comparada novamente.
 
 final result: blocked
 
-## Scope
+## Histórico de QA do inventário
 
-Comparison of the approved inventory board in `docs/design/previews/03-products-stock-purchases-suppliers.png` with the native Windows implementation of Products, Stock, Purchases, Suppliers and Initial Inventory Import.
+### Âmbito
 
-## Evidence inspected on 2026-07-28
+Comparação do quadro aprovado em `docs/design/previews/03-products-stock-purchases-suppliers.png` com a implementação nativa Windows de Produtos, Stock, Compras, Fornecedores e Importação de Inventário Inicial.
 
-The native application was inspected live with Windows Graphics Capture at 1011 by 634, 1536 by 816 and the approved physical window size of 1366 by 768. At 125 percent Windows display scaling, the 1366 by 768 window is represented as approximately 1080 by 608 logical pixels. The screenshots were displayed during the active QA session but were not persisted in the repository. The following states were visually inspected during the same run:
+### Evidência inspeccionada em 2026-07-28
 
-1. Products empty state and inline new-product form.
-2. Suppliers empty state.
-3. Stock empty state.
-4. Purchases empty state and disabled receipt form.
-5. Import file selection, automatic column mapping and validation result.
+A aplicação nativa foi inspeccionada ao vivo com Windows Graphics Capture a 1011 por 634, 1536 por 816 e no tamanho físico aprovado de 1366 por 768. Com a escala do Windows a 125 por cento, a janela de 1366 por 768 corresponde aproximadamente a 1080 por 608 píxeis lógicos. As capturas foram apresentadas durante a sessão activa de QA mas não foram guardadas no repositório. Foram inspeccionados estes estados:
 
-The application was rebuilt after the responsive-header fix. An administrator completed the login manually. The corrected shell and all five inventory pages were then reviewed at the approved physical window size without automating credentials.
+1. Estado vazio de Produtos e formulário de novo produto.
+2. Estado vazio de Fornecedores.
+3. Estado vazio de Stock.
+4. Estado vazio de Compras e formulário de recepção desactivado.
+5. Selecção do ficheiro de importação, mapeamento automático das colunas e resultado da validação.
 
-## Comparison result
+A aplicação foi recompilada depois da correcção do cabeçalho responsivo. Um administrador concluiu o início de sessão manualmente. O shell corrigido e as cinco páginas de inventário foram revistos no tamanho físico aprovado sem automatizar credenciais.
 
-### Products
+### Resultado da comparação
 
-Health: good at the inspected sizes, including the approved 1366 by 768 physical window.
+Produtos: bom nos tamanhos inspeccionados, incluindo 1366 por 768. O título, a acção principal, a pesquisa persistente, o estado vazio e o editor em linha seguem a estrutura aprovada. O formulário mantém deslocamento vertical e não insere medicamentos ou totais fictícios.
 
-The title, primary action, persistent search, honest empty state and inline editor follow the approved structure. The form remains scrollable at the smaller size. The implementation does not insert sample medicines or fixed totals from the reference board.
+Fornecedores: bom no estado vazio. A acção principal, a pesquisa e a explicação do estado vazio são claras. Os painéis detalhados de dívida e compras dependem de dados reais.
 
-### Suppliers
+Stock: bom no estado vazio. A página mantém o título, a pesquisa e a estrutura tabular aprovada. Os alertas reais aparecem no shell. As linhas de lote, validade e FEFO dependem de dados reais.
 
-Health: good in the empty state.
+Compras: bom a 1536 por 816 e utilizável com deslocamento a 1011 por 634 e a 1366 por 768 com escala de 125 por cento. Nos tamanhos lógicos menores, as duas colunas comprimem a tabela e exigem deslocamento no painel de recepção. Todos os campos continuam acessíveis.
 
-The primary action, search area and educational empty state are clear. The detailed supplier debt and purchase panels cannot be compared until real supplier data exists.
+Importação inicial: bom até à validação. O indicador de quatro passos, a indicação de ficheiro local, o mapeamento automático e o fluxo persistente são claros. O modelo CSV oficial vazio é processado pelo leitor de produção e um teste confirma os cabeçalhos obrigatórios sem linhas de dados.
 
-### Stock
+### Acessibilidade observada
 
-Health: good in the empty state.
+A navegação, os campos e os botões foram expostos pela automação do Windows com nomes úteis. A acção de recepção permaneceu desactivada até existirem valores obrigatórios. Os controlos usam rótulos visíveis e alvos grandes. A navegação por teclado foi exercitada e o foco permaneceu visível. Leitor de ecrã completo, rácios de contraste e zoom de 200 por cento não foram medidos.
 
-The page keeps the approved title, search and table-oriented structure. Real alert counts appear in the shell. Lot, expiry and FEFO rows cannot be compared until test data is created.
+### Correcções realizadas durante o QA
 
-### Purchases
+Foi criado um estado compacto do shell abaixo de 1450 píxeis. O botão de terminar sessão recebeu uma coluna dedicada. Os nomes dinâmicos ganharam limites e reticências. Os estados secundários ficam ocultos em modo compacto. Foi removida a alteração de visibilidade em código que anulava os estados responsivos. Foi acrescentado o teste do CSV oficial vazio. A janela inicial passou a usar 1366 por 768 e recebeu protecção por teste.
 
-Health: good at 1536 by 816 and usable with scrolling at 1011 by 634 and at 1366 by 768 with 125 percent Windows scaling.
+### Limitação do inventário
 
-At the larger size all table headers and receipt fields are visible. At the smaller logical sizes the two-column layout compresses the table and requires scrolling in the receipt pane. The vertical scroll container exposes every field and the disabled confirmation state is clear. A future breakpoint should stack the receipt pane below the purchase list for windows materially narrower than the supported 1366-pixel target.
-
-### Initial inventory import
-
-Health: good through validation.
-
-The four-step indicator, local-file reassurance, automatic required-column mapping and persistent validation flow are clear. The official empty CSV model is parsed through the production reader and an automated regression test confirms that it contains the required headers and no data rows.
-
-## Accessibility observations
-
-- Navigation, form fields and buttons were exposed through Windows UI Automation with useful names.
-- The receipt action remained disabled until required values are available.
-- Controls use visible labels and large targets.
-- Keyboard navigation was exercised from the supplier page into the shell navigation and the focus indicator remained visible.
-- Full screen-reader announcements, contrast ratios and 200 percent zoom were not measured in this run.
-
-## Corrections made during QA
-
-- Added a compact shell state below 1450 pixels so secondary status labels do not collide with the sign-out button.
-- Reserved a dedicated header column for sign-out, limited dynamic name widths and added ellipsis trimming.
-- Moved the complete operational header to a safer 1450-pixel breakpoint and hid secondary status labels in compact mode.
-- Removed the code-level visibility override that defeated the responsive states.
-- Added a regression test proving that the official CSV model has the required headers and no data rows.
-- Set the initial desktop window to the approved physical size of 1366 by 768 and protected it with a regression test.
-
-## Blocking conditions
-
-The empty and initial states have been compared directly with the approved board and the responsive defect found during the comparison has been corrected. The strict final result remains blocked only because the approved board shows populated products, lots, purchases and suppliers while this local installation intentionally contains no invented business data. A same-state pixel-level comparison requires representative records supplied or explicitly approved as disposable QA data.
+Os estados vazios e iniciais foram comparados directamente e o defeito responsivo encontrado foi corrigido. A comparação pixel a pixel dos estados preenchidos continua dependente de registos representativos fornecidos ou aprovados como dados descartáveis de QA.

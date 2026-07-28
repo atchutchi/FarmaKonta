@@ -218,6 +218,8 @@ git commit -m "feat: persist cash shifts atomically"
 
 ### Task 4: Native Cash screen
 
+**Approved scope extension:** The approved cash mockup requires real entry and exit totals. The aggregate, application summary and idempotent snapshot reader therefore expose these totals without duplicating calculations in the Desktop layer. Legacy snapshots rebuild the historical totals from persisted movements.
+
 **Files:**
 - Create: `src/Nofarma.Desktop/ViewModels/CashViewModel.cs`
 - Create: `src/Nofarma.Desktop/Views/CashPage.xaml`
@@ -230,15 +232,15 @@ git commit -m "feat: persist cash shifts atomically"
 - Consumes: `CashShiftService`.
 - Produces: opening, current-shift and closing states at the `Caixa` navigation destination.
 
-- [ ] **Step 1: Write failing view-model tests**
+- [x] **Step 1: Write failing view-model tests**
 
 Prove the initial loading state, honest no-shift state, opening amount validation, duplicate-submit lock, manual entry/exit validation, expected cash display, close difference preview and reset after successful close.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `dotnet test tests/Nofarma.UnitTests/Nofarma.UnitTests.csproj --filter "FullyQualifiedName~CashViewModelTests"`
 
-- [ ] **Step 3: Implement the approved native interface**
+- [x] **Step 3: Implement the approved native interface**
 
 Use one opening panel when no shift exists. With an open shift, show opening cash, entries, exits and expected cash plus a closing panel with counted cash and difference. Use explicit text with semantic colour for differences. Assign automation names to amount, reason and action controls. Bind `F2` to opening and `F4` to closing without hiding the labelled buttons.
 
@@ -246,7 +248,7 @@ Use one opening panel when no shift exists. With an open shift, show opening cas
 
 Run all unit tests. Launch the application, complete login manually and inspect no-shift, open-shift and validation states. Do not insert sample totals as operational data.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/Nofarma.Desktop tests/Nofarma.UnitTests/Desktop
