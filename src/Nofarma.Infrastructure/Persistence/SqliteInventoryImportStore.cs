@@ -235,6 +235,55 @@ public sealed class SqliteInventoryImportStore(DbContextOptions<NofarmaDbContext
         return new InventoryImportConfirmationResult(importId, created, rows.Length, false);
     }
 
+    public async Task<InventoryImportDraft> UpdateRowAsync(
+        EntityId pharmacyId,
+        EntityId importId,
+        InventoryImportDraftRow row,
+        CancellationToken cancellationToken)
+    {
+        await using var db = new NofarmaDbContext(options);
+        InventoryImportRecord import = await db.InventoryImports.SingleOrDefaultAsync(
+            item => item.Id == importId.Value && item.PharmacyId == pharmacyId.Value,
+            cancellationToken) ?? throw new InventoryValidationException("A importação indicada não existe.");
+        if (import.Status != (int)InventoryImportStatus.Draft)
+        {
+            throw new InventoryValidationException("Uma importação confirmada não pode ser alterada.");
+        }
+
+        InventoryImportRowRecord stored = await db.InventoryImportRows.SingleOrDefaultAsync(
+            item => item.Id == row.Id.Value && item.InventoryImportId == import.Id,
+            cancellationToken) ?? throw new InventoryValidationException("A linha indicada não existe.");
+        InventoryImportErrorRecord[] previousErrors = await db.InventoryImportErrors
+            .Where(item => item.InventoryImportRowId == stored.Id).ToArrayAsync(cancellationToken);
+        db.InventoryImportErrors.RemoveRange(previousErrors);
+        stored.DataJson = JsonSerializer.Serialize(row.Data, JsonOptions);
+        stored.MatchType = (int)row.MatchType;
+        stored.MatchedProductId = row.MatchedProductId?.Value;
+        stored.Status = (int)row.Status;
+        foreach (InventoryImportError error in row.Errors)
+        {
+            db.InventoryImportErrors.Add(new InventoryImportErrorRecord
+            {
+                Id = Guid.NewGuid(),
+                InventoryImportId = import.Id,
+                InventoryImportRowId = stored.Id,
+                RowNumber = error.RowNumber,
+                Field = error.Field,
+                ReceivedValue = Truncate(error.ReceivedValue, 1000),
+                Code = error.Code,
+                Message = error.Message
+            });
+        }
+
+        import.ValidRows = await db.InventoryImportRows.CountAsync(
+            item => item.InventoryImportId == import.Id && item.Id != stored.Id && item.Status == (int)InventoryImportRowStatus.Valid,
+            cancellationToken) + (row.Status == InventoryImportRowStatus.Valid ? 1 : 0);
+        import.ErrorRows = import.TotalRows - import.ValidRows;
+        await db.SaveChangesAsync(cancellationToken);
+        return await GetDraftAsync(pharmacyId, importId, cancellationToken)
+            ?? throw new InventoryValidationException("Não foi possível actualizar a importação.");
+    }
+
     public async Task<IReadOnlyList<InventoryImportError>> GetErrorsAsync(EntityId pharmacyId, EntityId importId, CancellationToken cancellationToken)
     {
         await using var db = new NofarmaDbContext(options);

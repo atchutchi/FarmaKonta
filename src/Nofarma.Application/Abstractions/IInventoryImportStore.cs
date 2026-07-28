@@ -21,6 +21,11 @@ public interface IInventoryImportStore
         DateTimeOffset createdAtUtc,
         CancellationToken cancellationToken);
     Task<InventoryImportDraft?> GetDraftAsync(EntityId pharmacyId, EntityId importId, CancellationToken cancellationToken);
+    Task<InventoryImportDraft> UpdateRowAsync(
+        EntityId pharmacyId,
+        EntityId importId,
+        InventoryImportDraftRow row,
+        CancellationToken cancellationToken);
     Task<InventoryImportConfirmationResult> ConfirmAsync(
         InventoryImportStoreContext context,
         EntityId userId,

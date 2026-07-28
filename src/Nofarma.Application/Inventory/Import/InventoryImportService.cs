@@ -79,6 +79,36 @@ public sealed class InventoryImportService(
             cancellationToken);
     }
 
+    public async Task<InventoryImportDraft> CorrectRowAsync(
+        LocalSession actor,
+        EntityId importId,
+        EntityId rowId,
+        InventoryImportNormalizedRow correctedData,
+        CancellationToken cancellationToken)
+    {
+        authorization.EnsureAllowed(actor, Capability.ImportInventory);
+        InventoryImportStoreContext context = await GetContextAsync(actor, cancellationToken);
+        InventoryImportDraft draft = await store.GetDraftAsync(context.PharmacyId, importId, cancellationToken)
+            ?? throw new ArgumentException("A importação indicada não existe.", nameof(importId));
+        if (draft.Status != InventoryImportStatus.Draft)
+        {
+            throw new InvalidOperationException("Uma importação confirmada não pode ser alterada.");
+        }
+
+        InventoryImportDraftRow original = draft.Rows.SingleOrDefault(row => row.Id == rowId)
+            ?? throw new ArgumentException("A linha indicada não existe.", nameof(rowId));
+        var errors = ValidateNormalizedRow(original.RowNumber, correctedData);
+        IReadOnlyList<ExistingImportProduct> products = await store.FindProductsAsync(
+            context.PharmacyId,
+            NotBlank(correctedData.Barcode) ? [correctedData.Barcode!] : [],
+            NotBlank(correctedData.InternalCode) ? [correctedData.InternalCode!] : [],
+            cancellationToken);
+        InventoryImportDraftRow validated = MatchAndValidate(
+            [(original.RowNumber, correctedData, errors)], products).Single() with
+        { Id = rowId };
+        return await store.UpdateRowAsync(context.PharmacyId, importId, validated, cancellationToken);
+    }
+
     public async Task ExportErrorsAsync(
         LocalSession actor,
         EntityId importId,
@@ -211,6 +241,21 @@ public sealed class InventoryImportService(
         if (value.Equals("medicamento", StringComparison.OrdinalIgnoreCase)) return ProductType.Medicine;
         AddError(errors, row, "tipo_produto", value, "product_type_invalid", "O tipo deve ser Medicamento ou Geral.");
         return ProductType.General;
+    }
+
+    private static List<InventoryImportError> ValidateNormalizedRow(
+        int rowNumber,
+        InventoryImportNormalizedRow row)
+    {
+        var errors = new List<InventoryImportError>();
+        if (string.IsNullOrWhiteSpace(row.CommercialName)) AddError(errors, rowNumber, "nome", row.CommercialName, "required", "O nome comercial é obrigatório.");
+        if (string.IsNullOrWhiteSpace(row.BaseUnit)) AddError(errors, rowNumber, "unidade_base", row.BaseUnit, "required", "A unidade base é obrigatória.");
+        if (row.ConversionFactor <= 0) AddError(errors, rowNumber, "factor", row.ConversionFactor.ToString(CultureInfo.InvariantCulture), "positive_integer_required", "O factor deve ser positivo.");
+        if (row.InitialQuantity <= 0) AddError(errors, rowNumber, "quantidade", row.InitialQuantity.ToString(CultureInfo.InvariantCulture), "positive_integer_required", "A quantidade deve ser positiva.");
+        if (row.PurchasePriceXof < 0 || row.SalePriceXof < 0 || row.MinimumStockBase is < 0) AddError(errors, rowNumber, "valor", null, "non_negative_integer_required", "Preços e stock mínimo não podem ser negativos.");
+        if (row.ProductType == ProductType.Medicine && string.IsNullOrWhiteSpace(row.LotNumber)) AddError(errors, rowNumber, "lote", row.LotNumber, "medicine_lot_required", "Um medicamento exige lote.");
+        if (row.ProductType == ProductType.Medicine && row.ExpiryDate is null) AddError(errors, rowNumber, "validade", null, "medicine_expiry_required", "Um medicamento exige validade.");
+        return errors;
     }
 
     private static long ParseLong(string? value, long fallback, bool allowZero, string field, int row, List<InventoryImportError> errors)

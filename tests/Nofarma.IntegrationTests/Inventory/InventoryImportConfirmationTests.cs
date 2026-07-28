@@ -9,6 +9,29 @@ namespace Nofarma.IntegrationTests.Inventory;
 public sealed class InventoryImportConfirmationTests
 {
     [Fact]
+    public async Task UpdateRowReplacesErrorsAndRecalculatesDraftCounts()
+    {
+        await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
+        var store = new SqliteInventoryImportStore(fixture.Options);
+        var context = new InventoryImportStoreContext(fixture.PharmacyId, fixture.DeviceId);
+        EntityId rowId = EntityId.New();
+        InventoryImportNormalizedRow data = GeneralRow();
+        var blocked = new InventoryImportDraftRow(rowId, 2, data with { InitialQuantity = 0 },
+            InventoryImportMatchType.NewProduct, null, InventoryImportRowStatus.Blocked,
+            [new InventoryImportError(2, "quantidade", "0", "positive_integer_required", "A quantidade deve ser positiva.")]);
+        InventoryImportDraft draft = await store.SaveDraftAsync(context, fixture.UserId, "inventory.csv",
+            new string('B', 64), null, [blocked], DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
+        var corrected = blocked with { Data = data, Status = InventoryImportRowStatus.Valid, Errors = [] };
+
+        InventoryImportDraft updated = await store.UpdateRowAsync(
+            fixture.PharmacyId, draft.Id, corrected, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, updated.ValidRows);
+        Assert.Equal(0, updated.ErrorRows);
+        Assert.Empty(Assert.Single(updated.Rows).Errors);
+    }
+
+    [Fact]
     public async Task ConfirmCreatesOpeningInventoryAtomicallyAndRetryIsIdempotent()
     {
         await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
@@ -18,10 +41,7 @@ public sealed class InventoryImportConfirmationTests
         var row = new InventoryImportDraftRow(
             rowId,
             2,
-            new InventoryImportNormalizedRow(
-                null, "560999", "Vitamina C", null, null, null, null, "Geral",
-                ProductType.General, "Comprimido", "Caixa", 10, 50, 100, 20, 3,
-                "VC-01", new DateOnly(2027, 12, 31), null, null, false),
+            GeneralRow(),
             InventoryImportMatchType.NewProduct,
             null,
             InventoryImportRowStatus.Valid,
@@ -50,4 +70,9 @@ public sealed class InventoryImportConfirmationTests
         Assert.Equal(30, await verification.StockLots.Where(lot => lot.Number == "VC-01")
             .Select(lot => lot.AvailableQuantityBase).SingleAsync(TestContext.Current.CancellationToken));
     }
+
+    private static InventoryImportNormalizedRow GeneralRow() => new(
+        null, "560999", "Vitamina C", null, null, null, null, "Geral",
+        ProductType.General, "Comprimido", "Caixa", 10, 50, 100, 20, 3,
+        "VC-01", new DateOnly(2027, 12, 31), null, null, false);
 }
