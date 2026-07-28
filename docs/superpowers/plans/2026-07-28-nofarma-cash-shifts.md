@@ -110,6 +110,7 @@ git commit -m "feat: add cash shift domain"
 - Create: `src/Nofarma.Application/Sales/CashCommandFingerprint.cs`
 - Create: `src/Nofarma.Application/Sales/CashShiftConflictException.cs`
 - Create: `src/Nofarma.Application/Sales/CashShiftConcurrencyException.cs`
+- Create: `src/Nofarma.Application/Sales/CashShiftOperationBlockedException.cs`
 - Create: `src/Nofarma.Application/Sales/CashShiftService.cs`
 - Test: `tests/Nofarma.UnitTests/Application/Sales/CashShiftServiceTests.cs`
 
@@ -117,7 +118,7 @@ git commit -m "feat: add cash shift domain"
 - Consumes: `AuthorizationService`, `IUtcClock`, `IStockOperationPolicy` and `ICashShiftStore`.
 - Produces: `OpenAsync`, `GetCurrentAsync`, `RecordManualMovementAsync` and `CloseAsync`.
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 ```csharp
 CashShiftSummary result = await service.OpenAsync(
@@ -128,20 +129,20 @@ Assert.Equal(50_000, result.OpeningCashXof);
 Assert.Equal(CashShiftStatus.Open, result.Status);
 ```
 
-Add separate tests for missing `ManageCashShift`, blocked opening and manual movement policy, allowed consultation and closing after the policy becomes blocked, a second open shift, blank or oversized idempotency key, missing manual reason, duplicate idempotency returning the stored result and reuse of the same key with a different request fingerprint raising `CashShiftConflictException`.
+Add separate tests for missing `ManageCashShift`, blocked opening and manual movement policy, allowed consultation and closing after the policy becomes blocked, a second open shift, blank or oversized idempotency key, missing manual reason, duplicate idempotency returning the stored result, concurrent identical retries and reuse of the same key with a different request fingerprint raising `CashShiftConflictException`.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `dotnet test tests/Nofarma.UnitTests/Nofarma.UnitTests.csproj --filter "FullyQualifiedName~CashShiftServiceTests"`
 
 Expected: compilation fails because `CashShiftService` and `ICashShiftStore` do not exist.
 
-- [ ] **Step 3: Implement contracts and service**
+- [x] **Step 3: Implement contracts and service**
 
 ```csharp
 public interface ICashShiftStore
 {
-    Task<CashShiftActorContext> GetActorContextAsync(EntityId userId, CancellationToken cancellationToken);
+    Task<CashShiftActorContext?> GetActorContextAsync(EntityId userId, CancellationToken cancellationToken);
     Task<StoredCashShift?> GetCurrentAggregateAsync(EntityId pharmacyId, EntityId deviceId, CancellationToken cancellationToken);
     Task<CashCommandResult?> GetCommandResultAsync(EntityId pharmacyId, string idempotencyKey, CancellationToken cancellationToken);
     Task<CashShiftSummary> SaveOpenedAsync(CashShiftActorContext context, CashShift shift, CashCommandEnvelope command, AuditEvent audit, CancellationToken cancellationToken);
@@ -152,15 +153,17 @@ public interface ICashShiftStore
 
 `StoredCashShift` contains the reconstructed aggregate and its persistence version. The service loads it, invokes `RecordMovement` or `Close` and gives the validated aggregate plus `expectedVersion` to the store. On a concurrency conflict, the service reloads, reapplies the same command and retries at most three times. The SQLite store reconstructs an aggregate by calling `Open`, replaying persisted movements through `RecordMovement` and, when applicable, calling `Close`.
 
-`CashCommandEnvelope` contains the normalised key, operation type and a SHA-256 fingerprint of a canonical request containing only identifiers, amounts, movement type and normalised reason. An identical duplicate returns the stored immutable result snapshot. The same key with a different fingerprint raises `CashShiftConflictException`.
+`CashCommandEnvelope` contains the normalised key, operation type and a SHA-256 fingerprint of a canonical request containing the pharmacy and device identifiers, amounts, movement type and normalised reason. An identical duplicate returns the stored immutable result snapshot. The same key with a different fingerprint raises `CashShiftConflictException`, including reuse by another device in the same pharmacy.
+
+After every concurrency conflict, including the final attempt and opening, the service rechecks the idempotent result before propagating the conflict. Movement and closing retries calculate an effective timestamp that is not earlier than the last activity in the reloaded aggregate.
 
 Every public operation calls `authorization.EnsureAllowed(actor, Capability.ManageCashShift)`. Opening and manual movements also validate `IStockOperationPolicy`. Consultation and safe closing of an existing shift remain available when the policy later becomes blocked, so licensing cannot trap unreconciled cash.
 
-- [ ] **Step 4: Run focused and full unit tests**
+- [x] **Step 4: Run focused and full unit tests**
 
 Run: `dotnet test tests/Nofarma.UnitTests/Nofarma.UnitTests.csproj --configuration Release`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/Nofarma.Application tests/Nofarma.UnitTests/Application/Sales
