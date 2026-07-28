@@ -18,6 +18,8 @@ internal sealed class RecordingLicenseStore : ILicenseStore
 
     internal AuditEvent? LastAudit { get; private set; }
 
+    internal StoredLicense? Current => _current;
+
     public Task<StoredLicense?> GetAsync(CancellationToken cancellationToken) => Task.FromResult(_current);
 
     public Task ReplaceAsync(

@@ -38,11 +38,12 @@ public sealed class LicenseService(
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        byte[] document = request.Document.ToArray();
         LicenseContext context = await GetContextAsync(cancellationToken).ConfigureAwait(false);
         DeviceLicenseIdentity device = deviceIdentityStore.GetOrCreate(
             context.PharmacyId,
             context.DeviceId);
-        LicenseVerification verification = verifier.Verify(request.Document, device, context);
+        LicenseVerification verification = verifier.Verify(document, device, context);
         if (!verification.IsValid || verification.License is null)
         {
             throw new LicenseImportException(verification.Code ?? "LICENSE_INVALID");
@@ -50,10 +51,10 @@ public sealed class LicenseService(
 
         VerifiedLicense verifiedLicense = verification.License with
         {
-            Document = request.Document
+            Document = document
         };
         StoredLicense? current = await store.GetAsync(cancellationToken).ConfigureAwait(false);
-        if (current is not null && request.Document.AsSpan().SequenceEqual(current.Document.Span))
+        if (current is not null && document.AsSpan().SequenceEqual(current.Document.Span))
         {
             return Evaluate(current.Grant);
         }

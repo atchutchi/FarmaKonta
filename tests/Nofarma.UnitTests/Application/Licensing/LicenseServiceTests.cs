@@ -81,6 +81,21 @@ public sealed class LicenseServiceTests
     }
 
     [Fact]
+    public async Task ImportPersistsADefensiveCopyOfTheVerifiedDocument()
+    {
+        byte[] document = [7, 8, 9];
+        var store = new RecordingLicenseStore(existing: null);
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))));
+
+        await service.ImportAsync(new LicenseImportRequest(document), CancellationToken.None);
+        document[0] = 99;
+
+        Assert.Equal(new byte[] { 7, 8, 9 }, store.Current!.Document.ToArray());
+    }
+
+    [Fact]
     public async Task ImportedAuditDoesNotContainTheLicenseDocumentOrSignature()
     {
         byte[] document = [7, 8, 9];
