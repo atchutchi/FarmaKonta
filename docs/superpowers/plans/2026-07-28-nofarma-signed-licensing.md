@@ -46,6 +46,7 @@
 - `src/Nofarma.Application/Licensing/LicenseExceptions.cs`: erros estáveis para a interface.
 - `src/Nofarma.Application/Licensing/LicenseService.cs`: consulta, pedido, importação e renovação.
 - `src/Nofarma.Application/Abstractions/ILicenseStore.cs`: persistência transaccional.
+- `src/Nofarma.Application/Abstractions/ILicenseContextStore.cs`: contexto local de farmácia, estabelecimento e dispositivo.
 - `src/Nofarma.Application/Abstractions/ILicenseDocumentVerifier.cs`: parse e verificação criptográfica.
 - `src/Nofarma.Application/Abstractions/IDeviceLicenseIdentityStore.cs`: identidade DPAPI do dispositivo.
 - `src/Nofarma.Application/Abstractions/ILicenseClockCheckpoint.cs`: detecção de recuo temporal.
@@ -59,6 +60,7 @@
 - `src/Nofarma.Infrastructure/Licensing/WindowsDeviceLicenseIdentityStore.cs`: chave local DPAPI.
 - `src/Nofarma.Infrastructure/Licensing/WindowsLicenseClockCheckpoint.cs`: marcador temporal DPAPI.
 - `src/Nofarma.Infrastructure/Licensing/SqliteLicenseStore.cs`: licença, renovação, auditoria e instalação.
+- `src/Nofarma.Infrastructure/Licensing/SqliteLicenseContextStore.cs`: IDs locais necessários à activação.
 - `src/Nofarma.Infrastructure/Licensing/LicenseOperationPolicy.cs`: política runtime real.
 - `src/Nofarma.Infrastructure/Persistence/Records/LicenseRecord.cs`: registo persistido.
 - `src/Nofarma.Infrastructure/Persistence/Configurations/LicenseConfiguration.cs`: índices e limites.
@@ -196,6 +198,7 @@ git commit -m "feat: model signed licence states"
 - Create: `src/Nofarma.Application/Licensing/LicenseExceptions.cs`
 - Create: `src/Nofarma.Application/Licensing/LicenseService.cs`
 - Create: `src/Nofarma.Application/Abstractions/ILicenseStore.cs`
+- Create: `src/Nofarma.Application/Abstractions/ILicenseContextStore.cs`
 - Create: `src/Nofarma.Application/Abstractions/ILicenseDocumentVerifier.cs`
 - Create: `src/Nofarma.Application/Abstractions/IDeviceLicenseIdentityStore.cs`
 - Create: `src/Nofarma.Application/Abstractions/ILicenseClockCheckpoint.cs`
@@ -204,7 +207,7 @@ git commit -m "feat: model signed licence states"
 - Create: `tests/Nofarma.UnitTests/TestSupport/Licensing/LicenseServiceTestDoubles.cs`
 
 **Interfaces:**
-- Consumes: domínio da Task 1, `ILocalApplicationInfoStore`, `IUtcClock`.
+- Consumes: domínio da Task 1 e `IUtcClock`.
 - Produces: `GetStatusAsync`, `CreateActivationRequestAsync`, `ImportAsync` e `EnsureNewOperationsAllowedAsync`.
 
 - [ ] **Step 1: Escrever testes falhados para consulta, pedido e importação**
@@ -259,6 +262,11 @@ public interface ILicenseStore
     Task ReplaceAsync(VerifiedLicense license, AuditEvent audit, CancellationToken cancellationToken);
 }
 
+public interface ILicenseContextStore
+{
+    Task<LicenseContext?> GetAsync(CancellationToken cancellationToken);
+}
+
 public interface IDeviceLicenseIdentityStore
 {
     DeviceLicenseIdentity GetOrCreate(EntityId pharmacyId, EntityId deviceId);
@@ -276,6 +284,8 @@ public interface ILicensedOperationPolicy
 ```
 
 `LicenseService.ImportAsync` verifica o documento antes de persistir, exige sequência estritamente superior para um `LicenseId` diferente ou igual, permite repetição byte-a-byte idempotente e nunca regista assinatura ou documento no evento de auditoria.
+
+`LicenseContext` contém `EntityId PharmacyId`, `EntityId EstablishmentId` e `EntityId DeviceId`. No piloto, o store de infraestrutura devolve `EstablishmentId` igual a `PharmacyId`. `LicenseService` obtém este contexto antes de criar pedidos, consultar ou importar. Contexto ausente produz `LicenseContextUnavailableException` e nunca cria identidade de dispositivo.
 
 `LicenseServiceTestDoubles.cs` define `RecordingLicenseStore : ILicenseStore`, `StubVerifier : ILicenseDocumentVerifier` e `LicenseServiceTestFactory.Create(ILicenseStore, ILicenseDocumentVerifier)`. O store conta `ReplaceCalls` e mantém o `StoredLicense` apenas em memória. A factory usa relógio fixo `2026-08-10T12:00:00Z`, identidade literal e checkpoint sem recuo.
 
@@ -454,13 +464,14 @@ git commit -m "feat: protect licence device identity"
 - Create: `src/Nofarma.Infrastructure/Persistence/Records/LicenseRecord.cs`
 - Create: `src/Nofarma.Infrastructure/Persistence/Configurations/LicenseConfiguration.cs`
 - Create: `src/Nofarma.Infrastructure/Licensing/SqliteLicenseStore.cs`
+- Create: `src/Nofarma.Infrastructure/Licensing/SqliteLicenseContextStore.cs`
 - Modify: `src/Nofarma.Infrastructure/Persistence/NofarmaDbContext.cs`
 - Create: `src/Nofarma.Infrastructure/Persistence/Migrations/*_AddSignedLicensing.cs`
 - Test: `tests/Nofarma.IntegrationTests/Licensing/LicensePersistenceTests.cs`
 - Create: `tests/Nofarma.IntegrationTests/Licensing/LicenseDatabase.cs`
 
 **Interfaces:**
-- Consumes: `ILicenseStore`, `VerifiedLicense`.
+- Consumes: `ILicenseStore`, `ILicenseContextStore`, `VerifiedLicense`.
 - Produces: uma licença corrente por instalação, histórico de sequência através de auditoria e actualização transaccional do estado da instalação.
 
 - [ ] **Step 1: Escrever testes falhados de migração e rollback**
@@ -502,6 +513,8 @@ Expected: FAIL por tabela e store inexistentes.
 Abrir SQLite, iniciar `BeginTransaction(deferred: false)`, validar sequência novamente dentro da transacção, substituir a linha, acrescentar auditoria e actualizar `Installation.Status` para `Active`. Em erro, rollback total.
 
 `LicenseDatabase` é um fixture descartável que cria uma pasta temporária, migra SQLite, expõe `Options`, `Store`, `OpenContext()`, `Verified(long sequence)`, `Audit(string eventType)` e `CurrentSequenceAsync()`. `DisposeAsync` chama `SqliteConnection.ClearAllPools()` antes de remover apenas a sua pasta temporária validada.
+
+`SqliteLicenseContextStore.GetAsync` lê uma única instalação e devolve `LicenseContext(PharmacyId, PharmacyId, DeviceId)`. Devolve `null` quando não existe instalação e lança perante múltiplas instalações, sem escolher silenciosamente uma linha.
 
 - [ ] **Step 4: Executar migração e GREEN**
 
