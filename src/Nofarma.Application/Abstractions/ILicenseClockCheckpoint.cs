@@ -5,5 +5,7 @@ namespace Nofarma.Application.Abstractions;
 
 public interface ILicenseClockCheckpoint
 {
-    LicenseClockCheck CheckAndAdvance(UtcInstant now);
+    void Initialize(LicenseClockBinding binding, UtcInstant now);
+
+    LicenseClockCheck CheckAndAdvance(LicenseClockBinding binding, UtcInstant now);
 }

@@ -13,6 +13,12 @@ public sealed record DeviceLicenseIdentity(
     EntityId DeviceId,
     string PublicKeyThumbprint);
 
+public sealed record LicenseClockBinding(
+    EntityId PharmacyId,
+    EntityId DeviceId,
+    string Channel,
+    string DeviceKeyThumbprint);
+
 public sealed record LicenseImportRequest(byte[] Document);
 
 public sealed record LicenseActivationRequest(

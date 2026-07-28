@@ -8,10 +8,12 @@ namespace Nofarma.UnitTests.TestSupport.Licensing;
 internal sealed class RecordingLicenseStore : ILicenseStore
 {
     private StoredLicense? _current;
+    private readonly List<string>? _events;
 
-    internal RecordingLicenseStore(StoredLicense? existing)
+    internal RecordingLicenseStore(StoredLicense? existing, List<string>? events = null)
     {
         _current = existing;
+        _events = events;
     }
 
     internal int ReplaceCalls { get; private set; }
@@ -27,6 +29,7 @@ internal sealed class RecordingLicenseStore : ILicenseStore
         AuditEvent audit,
         CancellationToken cancellationToken)
     {
+        _events?.Add("license.replace");
         ReplaceCalls++;
         LastAudit = audit;
         _current = new StoredLicense(license);
@@ -76,13 +79,14 @@ internal static class LicenseServiceTestFactory
         ILicenseDocumentVerifier verifier,
         LicenseContext? context = null,
         bool hasContext = true,
-        IDeviceLicenseIdentityStore? identities = null) =>
+        IDeviceLicenseIdentityStore? identities = null,
+        ILicenseClockCheckpoint? checkpoint = null) =>
         new(
             store,
             new ContextStore(hasContext ? context ?? Context : null),
             verifier,
             identities ?? new RecordingDeviceLicenseIdentityStore(),
-            new FixedCheckpoint(),
+            checkpoint ?? new RecordingLicenseClockCheckpoint(),
             new FixedClock());
 
     private sealed class ContextStore(LicenseContext? context) : ILicenseContextStore
@@ -90,13 +94,44 @@ internal static class LicenseServiceTestFactory
         public Task<LicenseContext?> GetAsync(CancellationToken cancellationToken) => Task.FromResult(context);
     }
 
-    private sealed class FixedCheckpoint : ILicenseClockCheckpoint
-    {
-        public LicenseClockCheck CheckAndAdvance(UtcInstant now) => new(false);
-    }
-
     private sealed class FixedClock : IUtcClock
     {
         public UtcInstant GetCurrentInstant() => LicenseTestData.Instant("2026-08-10T12:00:00Z");
+    }
+}
+
+internal sealed class RecordingLicenseClockCheckpoint(
+    bool rollbackDetected = false,
+    Exception? checkException = null,
+    Exception? initializeException = null,
+    List<string>? events = null) : ILicenseClockCheckpoint
+{
+    internal int InitializeCalls { get; private set; }
+
+    internal int CheckCalls { get; private set; }
+
+    internal LicenseClockBinding? LastBinding { get; private set; }
+
+    public void Initialize(LicenseClockBinding binding, UtcInstant now)
+    {
+        events?.Add("checkpoint.initialize");
+        InitializeCalls++;
+        LastBinding = binding;
+        if (initializeException is not null)
+        {
+            throw initializeException;
+        }
+    }
+
+    public LicenseClockCheck CheckAndAdvance(LicenseClockBinding binding, UtcInstant now)
+    {
+        CheckCalls++;
+        LastBinding = binding;
+        if (checkException is not null)
+        {
+            throw checkException;
+        }
+
+        return new LicenseClockCheck(rollbackDetected);
     }
 }

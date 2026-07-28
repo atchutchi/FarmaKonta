@@ -52,6 +52,51 @@ internal sealed class WindowsCurrentUserDataProtector : ILocalDataProtector
 
 internal static class ProtectedFile
 {
+    internal static byte[] ReadBounded(
+        string targetPath,
+        int maximumBytes,
+        string invalidMessage)
+    {
+        using var stream = new FileStream(
+            targetPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+        if (stream.Length < 1 || stream.Length > maximumBytes)
+        {
+            throw new CryptographicException(invalidMessage);
+        }
+
+        byte[] contents = new byte[checked((int)stream.Length)];
+        stream.ReadExactly(contents);
+        if (stream.ReadByte() >= 0)
+        {
+            CryptographicOperations.ZeroMemory(contents);
+            throw new CryptographicException(invalidMessage);
+        }
+
+        return contents;
+    }
+
+    internal static void CleanupValidatedTemporaries(string targetPath)
+    {
+        string fullTargetPath = Path.GetFullPath(targetPath);
+        string? directory = Path.GetDirectoryName(fullTargetPath);
+        if (directory is null || !Directory.Exists(directory))
+        {
+            return;
+        }
+
+        string expectedPrefix = $".{Path.GetFileName(fullTargetPath)}.";
+        foreach (string candidate in Directory.EnumerateFiles(
+                     directory,
+                     $"{expectedPrefix}*.tmp",
+                     SearchOption.TopDirectoryOnly))
+        {
+            DeleteValidatedTemporary(candidate, directory, fullTargetPath);
+        }
+    }
+
     internal static bool WriteNew(string targetPath, ReadOnlySpan<byte> contents)
     {
         string directory = GetOrCreateDirectory(targetPath);

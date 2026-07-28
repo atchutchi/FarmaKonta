@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Nofarma.Application.Abstractions;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Common;
@@ -15,11 +16,24 @@ public sealed class LicenseService(
 {
     public async Task<LicenseStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
-        await GetContextAsync(cancellationToken).ConfigureAwait(false);
         StoredLicense? stored = await store.GetAsync(cancellationToken).ConfigureAwait(false);
-        return stored is null
-            ? MissingStatus()
-            : Evaluate(stored.Grant);
+        if (stored is null)
+        {
+            return MissingStatus();
+        }
+
+        LicenseContext context = await GetContextAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            DeviceLicenseIdentity device = deviceIdentityStore.GetOrCreate(
+                context.PharmacyId,
+                context.DeviceId);
+            return Evaluate(stored.Grant, CreateBinding(context, device, stored.License.Channel));
+        }
+        catch (Exception exception) when (IsProtectedStateFailure(exception))
+        {
+            return EvaluateBlocked(stored.Grant);
+        }
     }
 
     public async Task<LicenseActivationRequest> CreateActivationRequestAsync(
@@ -56,7 +70,9 @@ public sealed class LicenseService(
         StoredLicense? current = await store.GetAsync(cancellationToken).ConfigureAwait(false);
         if (current is not null && document.AsSpan().SequenceEqual(current.Document.Span))
         {
-            return Evaluate(current.Grant);
+            return Evaluate(
+                current.Grant,
+                CreateBinding(context, device, current.License.Channel));
         }
 
         if (current is not null && verifiedLicense.Grant.Sequence <= current.Grant.Sequence)
@@ -65,6 +81,30 @@ public sealed class LicenseService(
         }
 
         UtcInstant now = clock.GetCurrentInstant();
+        LicenseClockBinding binding = CreateBinding(
+            context,
+            device,
+            verifiedLicense.Channel);
+        if (current is null)
+        {
+            try
+            {
+                clockCheckpoint.Initialize(binding, now);
+            }
+            catch (Exception exception) when (IsProtectedStateFailure(exception))
+            {
+                throw new LicenseImportException("LICENSE_CLOCK_CHECKPOINT");
+            }
+        }
+        else
+        {
+            LicenseClockCheck checkpoint = CheckFailClosed(binding, now);
+            if (checkpoint.RollbackDetected)
+            {
+                return EvaluateBlocked(current.Grant);
+            }
+        }
+
         AuditEvent audit = new(
             EntityId.New(),
             context.PharmacyId,
@@ -78,7 +118,7 @@ public sealed class LicenseService(
             null,
             "{}");
         await store.ReplaceAsync(verifiedLicense, audit, cancellationToken).ConfigureAwait(false);
-        return Evaluate(verifiedLicense.Grant);
+        return Evaluate(verifiedLicense.Grant, binding);
     }
 
     public async Task EnsureNewOperationsAllowedAsync(CancellationToken cancellationToken)
@@ -94,10 +134,10 @@ public sealed class LicenseService(
         await contextStore.GetAsync(cancellationToken).ConfigureAwait(false)
         ?? throw new LicenseContextUnavailableException();
 
-    private LicenseStatus Evaluate(LicenseGrant grant)
+    private LicenseStatus Evaluate(LicenseGrant grant, LicenseClockBinding binding)
     {
         UtcInstant now = clock.GetCurrentInstant();
-        LicenseClockCheck checkpoint = clockCheckpoint.CheckAndAdvance(now);
+        LicenseClockCheck checkpoint = CheckFailClosed(binding, now);
         LicenseEvaluation evaluation = LicenseEvaluator.Evaluate(
             grant,
             now,
@@ -108,6 +148,46 @@ public sealed class LicenseService(
             evaluation.AllowsReadOnlyAccess,
             grant);
     }
+
+    private LicenseClockCheck CheckFailClosed(LicenseClockBinding binding, UtcInstant now)
+    {
+        try
+        {
+            return clockCheckpoint.CheckAndAdvance(binding, now);
+        }
+        catch (Exception exception) when (IsProtectedStateFailure(exception))
+        {
+            return new LicenseClockCheck(true);
+        }
+    }
+
+    private static LicenseClockBinding CreateBinding(
+        LicenseContext context,
+        DeviceLicenseIdentity device,
+        string channel) =>
+        new(
+            context.PharmacyId,
+            context.DeviceId,
+            channel,
+            device.PublicKeyThumbprint);
+
+    private LicenseStatus EvaluateBlocked(LicenseGrant grant)
+    {
+        LicenseEvaluation evaluation = LicenseEvaluator.Evaluate(
+            grant,
+            clock.GetCurrentInstant(),
+            clockRollback: true);
+        return new LicenseStatus(
+            evaluation.State,
+            evaluation.AllowsNewOperations,
+            evaluation.AllowsReadOnlyAccess,
+            grant);
+    }
+
+    private static bool IsProtectedStateFailure(Exception exception) =>
+        exception is CryptographicException
+            or IOException
+            or UnauthorizedAccessException;
 
     private static LicenseStatus MissingStatus() =>
         new(LicenseState.Missing, false, true, null);

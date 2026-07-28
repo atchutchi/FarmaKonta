@@ -74,6 +74,53 @@ public sealed class WindowsDeviceLicenseIdentityStoreTests : IDisposable
             store.GetOrCreate(LicenseTestData.PharmacyId, otherDeviceId));
     }
 
+    [Fact]
+    public void OversizedIdentityIsRejectedBeforeUnprotecting()
+    {
+        Directory.CreateDirectory(_directory);
+        File.WriteAllBytes(
+            Path.Combine(_directory, "device-license-key.bin"),
+            new byte[64 * 1024]);
+        var protector = new CountingProtector(new FakeProtector("machine-a"));
+        var store = new WindowsDeviceLicenseIdentityStore(_directory, protector);
+
+        Assert.Throws<CryptographicException>(() =>
+            store.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId));
+        Assert.Equal(0, protector.UnprotectCalls);
+    }
+
+    [Fact]
+    public void AccessRemovesOnlyValidatedOrphansForTheIdentityTarget()
+    {
+        Directory.CreateDirectory(_directory);
+        string owned = Path.Combine(
+            _directory,
+            ".device-license-key.bin.abcd.tmp");
+        string unrelated = Path.Combine(_directory, ".other-secret.bin.abcd.tmp");
+        File.WriteAllBytes(owned, [1]);
+        File.WriteAllBytes(unrelated, [2]);
+        var store = new WindowsDeviceLicenseIdentityStore(
+            _directory,
+            new FakeProtector("machine-a"));
+
+        store.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+
+        Assert.False(File.Exists(owned));
+        Assert.True(File.Exists(unrelated));
+    }
+
+    [Fact]
+    public void DefaultDpapiProtectorRoundTripsOnWindows()
+    {
+        var first = new WindowsDeviceLicenseIdentityStore(_directory);
+        var created = first.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+
+        var loaded = new WindowsDeviceLicenseIdentityStore(_directory)
+            .GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+
+        Assert.Equal(created, loaded);
+    }
+
     public void Dispose()
     {
         DeleteOwnedTemporaryDirectory(_directory, "nofarma-device-licence-");
@@ -118,5 +165,19 @@ internal sealed class FakeProtector(string machineId) : ILocalDataProtector
         }
 
         return encrypted[clearOffset..].ToArray();
+    }
+}
+
+internal sealed class CountingProtector(ILocalDataProtector inner) : ILocalDataProtector
+{
+    internal int UnprotectCalls { get; private set; }
+
+    public byte[] Protect(ReadOnlySpan<byte> clear, ReadOnlySpan<byte> entropy) =>
+        inner.Protect(clear, entropy);
+
+    public byte[] Unprotect(ReadOnlySpan<byte> encrypted, ReadOnlySpan<byte> entropy)
+    {
+        UnprotectCalls++;
+        return inner.Unprotect(encrypted, entropy);
     }
 }

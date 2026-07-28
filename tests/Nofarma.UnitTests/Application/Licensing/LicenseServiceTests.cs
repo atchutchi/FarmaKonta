@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Nofarma.Application.Licensing;
 using Nofarma.Domain.Licensing;
 using Nofarma.UnitTests.TestSupport.Licensing;
@@ -20,6 +21,47 @@ public sealed class LicenseServiceTests
 
         Assert.Equal(LicenseState.Missing, status.State);
         Assert.False(status.AllowsNewOperations);
+    }
+
+    [Fact]
+    public async Task MissingLicenseDoesNotRequireContextOrCreateProtectedState()
+    {
+        var identities = new RecordingDeviceLicenseIdentityStore();
+        var checkpoint = new RecordingLicenseClockCheckpoint();
+        var service = LicenseServiceTestFactory.Create(
+            new RecordingLicenseStore(existing: null),
+            new StubVerifier(LicenseVerification.Invalid("NOT_USED")),
+            hasContext: false,
+            identities: identities,
+            checkpoint: checkpoint);
+
+        LicenseStatus status = await service.GetStatusAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseState.Missing, status.State);
+        Assert.Equal(0, identities.GetOrCreateCalls);
+        Assert.Equal(0, checkpoint.InitializeCalls);
+        Assert.Equal(0, checkpoint.CheckCalls);
+    }
+
+    [Fact]
+    public async Task StoredLicenseChecksCheckpointWithFullBinding()
+    {
+        var checkpoint = new RecordingLicenseClockCheckpoint();
+        var service = LicenseServiceTestFactory.Create(
+            new RecordingLicenseStore(LicenseTestData.StoredActive(sequence: 1)),
+            new StubVerifier(LicenseVerification.Invalid("NOT_USED")),
+            checkpoint: checkpoint);
+
+        await service.GetStatusAsync(CancellationToken.None);
+
+        Assert.Equal(1, checkpoint.CheckCalls);
+        Assert.Equal(
+            new LicenseClockBinding(
+                LicenseTestData.PharmacyId,
+                LicenseTestData.DeviceId,
+                "QA",
+                LicenseServiceTestFactory.DeviceIdentity.PublicKeyThumbprint),
+            checkpoint.LastBinding);
     }
 
     [Fact]
@@ -93,6 +135,80 @@ public sealed class LicenseServiceTests
         document[0] = 99;
 
         Assert.Equal(new byte[] { 7, 8, 9 }, store.Current!.Document.ToArray());
+    }
+
+    [Fact]
+    public async Task FirstValidImportInitializesCheckpointBeforePersistingLicense()
+    {
+        var events = new List<string>();
+        var checkpoint = new RecordingLicenseClockCheckpoint(events: events);
+        var store = new RecordingLicenseStore(existing: null, events: events);
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))),
+            checkpoint: checkpoint);
+
+        await service.ImportAsync(
+            new LicenseImportRequest(ValidBytes),
+            CancellationToken.None);
+
+        Assert.Equal(1, checkpoint.InitializeCalls);
+        Assert.Equal(["checkpoint.initialize", "license.replace"], events);
+    }
+
+    [Fact]
+    public async Task FailedCheckpointInitializationDoesNotPersistFirstLicense()
+    {
+        var checkpoint = new RecordingLicenseClockCheckpoint(
+            initializeException: new CryptographicException("cannot initialize"));
+        var store = new RecordingLicenseStore(existing: null);
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))),
+            checkpoint: checkpoint);
+
+        LicenseImportException error = await Assert.ThrowsAsync<LicenseImportException>(() =>
+            service.ImportAsync(
+                new LicenseImportRequest(ValidBytes),
+                CancellationToken.None));
+
+        Assert.Equal("LICENSE_CLOCK_CHECKPOINT", error.Code);
+        Assert.Equal(0, store.ReplaceCalls);
+    }
+
+    [Fact]
+    public async Task RollbackCheckpointDoesNotPersistRenewal()
+    {
+        var checkpoint = new RecordingLicenseClockCheckpoint(rollbackDetected: true);
+        var store = new RecordingLicenseStore(
+            LicenseTestData.StoredActive(sequence: 1));
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(LicenseVerification.Valid(LicenseTestData.Active(sequence: 2))),
+            checkpoint: checkpoint);
+
+        LicenseStatus status = await service.ImportAsync(
+            new LicenseImportRequest(ValidBytes),
+            CancellationToken.None);
+
+        Assert.Equal(LicenseState.ClockRollback, status.State);
+        Assert.Equal(0, store.ReplaceCalls);
+    }
+
+    [Fact]
+    public async Task CheckpointCryptographicFailureBlocksPersistedLicense()
+    {
+        var checkpoint = new RecordingLicenseClockCheckpoint(
+            checkException: new CryptographicException("invalid checkpoint"));
+        var service = LicenseServiceTestFactory.Create(
+            new RecordingLicenseStore(LicenseTestData.StoredActive(sequence: 1)),
+            new StubVerifier(LicenseVerification.Invalid("NOT_USED")),
+            checkpoint: checkpoint);
+
+        LicenseStatus status = await service.GetStatusAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseState.ClockRollback, status.State);
+        Assert.False(status.AllowsNewOperations);
     }
 
     [Fact]

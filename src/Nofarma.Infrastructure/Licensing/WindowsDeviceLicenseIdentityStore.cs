@@ -14,6 +14,7 @@ public sealed class WindowsDeviceLicenseIdentityStore : IDeviceLicenseIdentitySt
     private const byte FormatVersion = 1;
     private const string FileName = "device-license-key.bin";
     private const string P256Oid = "1.2.840.10045.3.1.7";
+    private const int MaximumProtectedPayloadBytes = 16 * 1024;
 
     private static readonly byte[] Entropy =
         Encoding.UTF8.GetBytes("Nofarma.Licensing.DeviceIdentity.v1");
@@ -34,6 +35,7 @@ public sealed class WindowsDeviceLicenseIdentityStore : IDeviceLicenseIdentitySt
 
     public DeviceLicenseIdentity GetOrCreate(EntityId pharmacyId, EntityId deviceId)
     {
+        ProtectedFile.CleanupValidatedTemporaries(_path);
         if (File.Exists(_path))
         {
             return ReadExisting(pharmacyId, deviceId);
@@ -60,7 +62,10 @@ public sealed class WindowsDeviceLicenseIdentityStore : IDeviceLicenseIdentitySt
 
     private DeviceLicenseIdentity ReadExisting(EntityId pharmacyId, EntityId deviceId)
     {
-        byte[] protectedPayload = File.ReadAllBytes(_path);
+        byte[] protectedPayload = ProtectedFile.ReadBounded(
+            _path,
+            MaximumProtectedPayloadBytes,
+            "The protected device licence identity is too large or empty.");
         byte[] clear = [];
         try
         {
