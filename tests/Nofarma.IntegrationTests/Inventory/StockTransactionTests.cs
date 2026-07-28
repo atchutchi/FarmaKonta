@@ -215,7 +215,9 @@ internal sealed class StockTestDatabase : IAsyncDisposable
         EntityId pharmacyId,
         EntityId deviceId,
         EntityId userId,
-        EntityId productId)
+        EntityId productId,
+        EntityId packageId,
+        EntityId supplierId)
     {
         _directory = directory;
         ConnectionString = connectionString;
@@ -224,6 +226,8 @@ internal sealed class StockTestDatabase : IAsyncDisposable
         DeviceId = deviceId;
         UserId = userId;
         ProductId = productId;
+        PackageId = packageId;
+        SupplierId = supplierId;
     }
 
     public string ConnectionString { get; }
@@ -238,6 +242,10 @@ internal sealed class StockTestDatabase : IAsyncDisposable
 
     public EntityId ProductId { get; }
 
+    public EntityId PackageId { get; }
+
+    public EntityId SupplierId { get; }
+
     public static async Task<StockTestDatabase> CreateAsync()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"nofarma-stock-{Guid.NewGuid():N}");
@@ -250,8 +258,10 @@ internal sealed class StockTestDatabase : IAsyncDisposable
         EntityId deviceId = EntityId.New();
         EntityId userId = EntityId.New();
         EntityId productId = EntityId.New();
+        EntityId packageId = EntityId.New();
+        EntityId basePackageId = EntityId.New();
+        EntityId supplierId = EntityId.New();
         Guid categoryId = Guid.NewGuid();
-        Guid packageId = Guid.NewGuid();
         DateTimeOffset now = new(2026, 7, 27, 12, 0, 0, TimeSpan.Zero);
         await using var context = new NofarmaDbContext(options);
         await context.Database.MigrateAsync(TestContext.Current.CancellationToken);
@@ -312,7 +322,7 @@ internal sealed class StockTestDatabase : IAsyncDisposable
             Type = (int)ProductType.General,
             RequiresLot = true,
             RequiresExpiry = true,
-            BasePackageId = packageId,
+            BasePackageId = basePackageId.Value,
             BaseUnit = "Unidade",
             SalePriceXof = 100,
             IndicativePurchasePriceXof = 50,
@@ -322,12 +332,31 @@ internal sealed class StockTestDatabase : IAsyncDisposable
         });
         context.ProductPackages.Add(new ProductPackageRecord
         {
-            Id = packageId,
+            Id = basePackageId.Value,
             ProductId = productId.Value,
             Name = "Unidade",
             FactorToBaseUnit = 1,
             IsBaseUnit = true,
             IsActive = true
+        });
+        context.ProductPackages.Add(new ProductPackageRecord
+        {
+            Id = packageId.Value,
+            ProductId = productId.Value,
+            Name = "Caixa",
+            FactorToBaseUnit = 12,
+            IsBaseUnit = false,
+            IsActive = true
+        });
+        context.Suppliers.Add(new SupplierRecord
+        {
+            Id = supplierId.Value,
+            PharmacyId = pharmacyId.Value,
+            Name = "Fornecedor nacional",
+            NormalizedName = "FORNECEDOR NACIONAL",
+            IsActive = true,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
         });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         return new StockTestDatabase(
@@ -337,7 +366,9 @@ internal sealed class StockTestDatabase : IAsyncDisposable
             pharmacyId,
             deviceId,
             userId,
-            productId);
+            productId,
+            packageId,
+            supplierId);
     }
 
     public InventoryConfirmation Entry(string idempotencyKey, long quantity)
