@@ -4,7 +4,7 @@ Sistema de gestão, stock, caixa e facturação para farmácias da Guiné-Bissau
 
 O produto é uma aplicação Windows nativa, offline-first, acompanhada por serviços cloud para sincronização, licenciamento, backups, actualizações e consulta remota.
 
-Estado actual: fundação técnica e primeira fase de identidade local implementadas. A aplicação Windows permite configurar a farmácia, criar o administrador principal, guardar um código de recuperação offline, iniciar sessão, criar utilizadores e aplicar permissões locais.
+Estado actual: fundação técnica, identidade local e gestão inicial de inventário implementadas. A aplicação Windows permite configurar a farmácia, criar o administrador principal, guardar um código de recuperação offline, iniciar sessão, gerir utilizadores, produtos, fornecedores, stock por lote, compras e inventário inicial por Excel ou CSV.
 
 Documentos principais:
 
@@ -13,6 +13,8 @@ Documentos principais:
 - [Especificação funcional e técnica](docs/superpowers/specs/2026-07-27-nofarma-product-design.md)
 - [Verificação da fundação](docs/development/verification.md)
 - [Identidade local e operação offline](docs/development/local-identity.md)
+- [Inventário, compras e importação inicial](docs/development/inventory.md)
+- [Modelo CSV de inventário](docs/development/inventory-import-template.csv)
 - [Atlas visual obrigatório](docs/design/previews/README.md)
 
 ## Desenvolvimento local

@@ -43,3 +43,16 @@ dotnet build src/Nofarma.Desktop/Nofarma.Desktop.csproj --configuration Debug --
 ```
 
 Numa base vazia, confirmar o assistente de quatro passos. Depois da configuração, confirmar o acesso por palavra-passe e PIN, o shell, a criação de Caixa e a recusa de acesso do Caixa a Utilizadores. O atlas em `docs/design/previews` é a referência visual. Os estados vazios não devem apresentar números ou operações simuladas.
+
+## Inventário local
+
+Executar adicionalmente:
+
+```powershell
+dotnet test tests/Nofarma.UnitTests/Nofarma.UnitTests.csproj --filter "FullyQualifiedName~Inventory|FullyQualifiedName~Purchase|FullyQualifiedName~Supplier|FullyQualifiedName~Product" --no-restore
+dotnet test tests/Nofarma.IntegrationTests/Nofarma.IntegrationTests.csproj --filter "FullyQualifiedName~Inventory|FullyQualifiedName~Purchase|FullyQualifiedName~Supplier|FullyQualifiedName~Product|FullyQualifiedName~Stock" --no-restore
+```
+
+Na aplicação Windows, confirmar Produtos, Fornecedores, Stock, Compras e Importar inventário. A barra superior deve apresentar contagens calculadas e nunca valores fixos. A importação deve aceitar apenas `.xlsx` e `.csv`, manter o rascunho ao voltar atrás e recusar a confirmação quando a licença não está activa. Uma linha bloqueada deve poder ser corrigida dentro da aplicação.
+
+Para a verificação visual, usar uma janela com 1366 por 768 píxeis. Confirmar foco de teclado visível, texto sem corte, controlos com pelo menos 40 píxeis de altura, estados vazios honestos e ausência de dados simulados.

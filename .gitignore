@@ -30,6 +30,10 @@ runtime-data/
 *.bak
 *.backup
 *.dump
+*.xlsx
+*.xls
+*.csv
+!docs/development/inventory-import-template.csv
 
 # .NET e Visual Studio
 bin/
