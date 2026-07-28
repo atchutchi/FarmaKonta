@@ -24,6 +24,7 @@ public interface IInventoryImportPageOperations
 {
     Task<InventoryImportFilePreview> InspectAsync(string filePath, string? worksheetName, CancellationToken cancellationToken);
     Task<InventoryImportDraft> CreateDraftAsync(string filePath, string? worksheetName, IReadOnlyDictionary<ImportColumn, string> mappings, CancellationToken cancellationToken);
+    Task<InventoryImportDraft> CorrectRowAsync(EntityId importId, EntityId rowId, InventoryImportNormalizedRow correctedData, CancellationToken cancellationToken);
     Task<InventoryImportConfirmationResult> ConfirmAsync(EntityId importId, string idempotencyKey, CancellationToken cancellationToken);
 }
 
@@ -60,6 +61,13 @@ public sealed class InventoryImportPageOperations(
         string idempotencyKey,
         CancellationToken cancellationToken) =>
         importService.ConfirmAsync(ActiveSession(), importId, idempotencyKey, cancellationToken);
+
+    public Task<InventoryImportDraft> CorrectRowAsync(
+        EntityId importId,
+        EntityId rowId,
+        InventoryImportNormalizedRow correctedData,
+        CancellationToken cancellationToken) =>
+        importService.CorrectRowAsync(ActiveSession(), importId, rowId, correctedData, cancellationToken);
 
     private LocalSession ActiveSession() => currentSession.Active
         ?? throw new InvalidOperationException("Não existe uma sessão activa.");
@@ -171,6 +179,31 @@ public sealed class InventoryImportViewModel(IInventoryImportPageOperations oper
         ErrorMessage = null;
         Step = InventoryImportStep.Confirmation;
         return true;
+    }
+
+    public async Task<bool> CorrectRowAsync(
+        EntityId rowId,
+        InventoryImportNormalizedRow correctedData,
+        CancellationToken cancellationToken)
+    {
+        if (IsBusy || Draft is null) return false;
+        IsBusy = true;
+        ErrorMessage = null;
+        try
+        {
+            Draft = await operations.CorrectRowAsync(Draft.Id, rowId, correctedData, cancellationToken);
+            Step = InventoryImportStep.Validation;
+            return true;
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            ErrorMessage = "Não foi possível guardar a correcção. O rascunho anterior continua guardado.";
+            return false;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     public async Task<bool> ConfirmAsync(bool explicitlyConfirmed, CancellationToken cancellationToken)

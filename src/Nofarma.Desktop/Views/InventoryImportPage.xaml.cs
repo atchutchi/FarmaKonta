@@ -1,9 +1,11 @@
+using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Nofarma.Application.Inventory.Import;
 using Nofarma.Desktop.ViewModels;
+using Nofarma.Domain.Catalog;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 
@@ -70,6 +72,57 @@ public sealed partial class InventoryImportPage : Page
     private void OnContinueToConfirmation(object sender, RoutedEventArgs e)
     {
         _viewModel.ContinueToConfirmation();
+        RefreshSurface();
+    }
+
+    private void OnImportRowSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (ImportRowsList.SelectedItem is not InventoryImportDraftRow row)
+        {
+            CorrectionPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        CorrectionPanel.Visibility = Visibility.Visible;
+        CorrectionErrorsText.Text = row.Errors.Count == 0
+            ? "A linha é válida. Podes revê-la antes da confirmação."
+            : string.Join(Environment.NewLine, row.Errors.Select(error => error.Message));
+        CorrectionNameBox.Text = row.Data.CommercialName;
+        CorrectionUnitBox.Text = row.Data.BaseUnit;
+        CorrectionTypeBox.SelectedIndex = row.Data.ProductType == ProductType.Medicine ? 1 : 0;
+        CorrectionQuantityBox.Text = row.Data.InitialQuantity.ToString(CultureInfo.InvariantCulture);
+        CorrectionFactorBox.Text = row.Data.ConversionFactor.ToString(CultureInfo.InvariantCulture);
+        CorrectionLotBox.Text = row.Data.LotNumber ?? string.Empty;
+        CorrectionExpiryPicker.Date = row.Data.ExpiryDate is { } expiry
+            ? new DateTimeOffset(expiry.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+            : null;
+        CorrectionPurchaseBox.Text = row.Data.PurchasePriceXof.ToString(CultureInfo.InvariantCulture);
+        CorrectionSaleBox.Text = row.Data.SalePriceXof.ToString(CultureInfo.InvariantCulture);
+        CorrectionMinimumBox.Text = row.Data.MinimumStockBase?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private async void OnSaveCorrection(object sender, RoutedEventArgs e)
+    {
+        if (ImportRowsList.SelectedItem is not InventoryImportDraftRow row) return;
+        InventoryImportNormalizedRow corrected = row.Data with
+        {
+            CommercialName = CorrectionNameBox.Text.Trim(),
+            BaseUnit = CorrectionUnitBox.Text.Trim(),
+            ProductType = CorrectionTypeBox.SelectedIndex == 1 ? ProductType.Medicine : ProductType.General,
+            InitialQuantity = ParseLong(CorrectionQuantityBox.Text, 0),
+            ConversionFactor = ParseLong(CorrectionFactorBox.Text, 0),
+            LotNumber = EmptyToNull(CorrectionLotBox.Text),
+            ExpiryDate = CorrectionExpiryPicker.Date is { } date ? DateOnly.FromDateTime(date.DateTime) : null,
+            PurchasePriceXof = ParseLong(CorrectionPurchaseBox.Text, -1),
+            SalePriceXof = ParseLong(CorrectionSaleBox.Text, -1),
+            MinimumStockBase = string.IsNullOrWhiteSpace(CorrectionMinimumBox.Text)
+                ? null
+                : ParseLong(CorrectionMinimumBox.Text, -1)
+        };
+        SetBusy(true);
+        bool saved = await _viewModel.CorrectRowAsync(row.Id, corrected, CancellationToken.None);
+        SetBusy(false);
+        ShowMessage(saved ? "Correcção guardada no rascunho." : _viewModel.ErrorMessage, saved);
         RefreshSurface();
     }
 
@@ -146,4 +199,9 @@ public sealed partial class InventoryImportPage : Page
         ImportMessage.Severity = success ? InfoBarSeverity.Success : InfoBarSeverity.Error;
         ImportMessage.Message = message ?? string.Empty;
     }
+
+    private static long ParseLong(string value, long fallback) =>
+        long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed) ? parsed : fallback;
+
+    private static string? EmptyToNull(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

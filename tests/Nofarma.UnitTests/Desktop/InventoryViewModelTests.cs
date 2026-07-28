@@ -142,6 +142,29 @@ public sealed class InventoryViewModelTests
         Assert.DoesNotContain("STOCK_CONFIRMATION_BLOCKED", viewModel.ErrorMessage, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task InventoryImportCorrectionUpdatesSavedDraftWithoutLeavingValidation()
+    {
+        var operations = new ImportOperations();
+        var viewModel = new InventoryImportViewModel(operations);
+        await viewModel.PrepareFileAsync("inventario.csv", null, TestContext.Current.CancellationToken);
+        viewModel.SetMapping(ImportColumn.CommercialName, "Nome");
+        viewModel.SetMapping(ImportColumn.BaseUnit, "Unidade");
+        viewModel.SetMapping(ImportColumn.InitialQuantity, "Quantidade");
+        await viewModel.CreateDraftAsync(TestContext.Current.CancellationToken);
+        InventoryImportDraftRow row = Assert.Single(viewModel.Draft!.Rows);
+
+        bool corrected = await viewModel.CorrectRowAsync(
+            row.Id,
+            row.Data with { InitialQuantity = 5 },
+            TestContext.Current.CancellationToken);
+
+        Assert.True(corrected);
+        Assert.Equal(InventoryImportStep.Validation, viewModel.Step);
+        Assert.Equal(5, Assert.Single(viewModel.Draft!.Rows).Data.InitialQuantity);
+        Assert.Equal(1, operations.CorrectCalls);
+    }
+
     private static ProductSummary Product(string code, string name) => new(
         EntityId.New(), code, name, ProductType.General, "Unidade", 100, false, false, true, null);
 
@@ -201,6 +224,7 @@ public sealed class InventoryViewModelTests
     private sealed class ImportOperations : IInventoryImportPageOperations
     {
         public bool BlockConfirmation { get; init; }
+        public int CorrectCalls { get; private set; }
 
         public Task<InventoryImportFilePreview> InspectAsync(string filePath, string? worksheetName, CancellationToken cancellationToken) =>
             Task.FromResult(new InventoryImportFilePreview(filePath, null, [], ["Nome", "Unidade", "Quantidade"]));
@@ -213,5 +237,16 @@ public sealed class InventoryViewModelTests
             BlockConfirmation
                 ? Task.FromException<InventoryImportConfirmationResult>(new StockOperationBlockedException("STOCK_CONFIRMATION_BLOCKED"))
                 : Task.FromResult(new InventoryImportConfirmationResult(importId, 1, 1, false));
+
+        public Task<InventoryImportDraft> CorrectRowAsync(EntityId importId, EntityId rowId, InventoryImportNormalizedRow correctedData, CancellationToken cancellationToken)
+        {
+            CorrectCalls++;
+            return CreateDraftAsync("inventario.csv", null, new Dictionary<ImportColumn, string>(), cancellationToken)
+                .ContinueWith(task => task.Result with
+                {
+                    Id = importId,
+                    Rows = [task.Result.Rows[0] with { Id = rowId, Data = correctedData }]
+                }, cancellationToken, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
     }
 }
