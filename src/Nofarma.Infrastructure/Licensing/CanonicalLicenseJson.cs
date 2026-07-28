@@ -214,7 +214,7 @@ public static class CanonicalLicenseJson
                 document,
                 new JsonDocumentOptions
                 {
-                    MaxDepth = Math.Max(MaximumDepth + 1, document.Length),
+                    MaxDepth = MaximumDepth + 1,
                     AllowTrailingCommas = false,
                     CommentHandling = JsonCommentHandling.Disallow
                 });

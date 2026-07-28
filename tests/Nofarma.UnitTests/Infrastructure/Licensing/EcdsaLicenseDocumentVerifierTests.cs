@@ -218,11 +218,7 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
     [Fact]
     public void RejectsKnownObjectStructureDeeperThanSixteenLevels()
     {
-        string nestedCapabilities = new string('[', 18) + "0" + new string(']', 18);
-        string document = ValidJson().Replace(
-            "\"capabilities\":[]",
-            $"\"capabilities\":{nestedCapabilities}",
-            StringComparison.Ordinal);
+        string document = DocumentWithNestedCapabilities(levels: 16);
 
         LicenseVerification result = _verifier.Verify(
             Encoding.UTF8.GetBytes(document),
@@ -231,6 +227,21 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
 
         Assert.False(result.IsValid);
         Assert.Equal("DOCUMENT_TOO_DEEP", result.Code);
+        Assert.Null(result.License);
+    }
+
+    [Fact]
+    public void DoesNotReparseStructuresFarBeyondTheDepthDiagnosticBoundary()
+    {
+        string document = DocumentWithNestedCapabilities(levels: 256);
+
+        LicenseVerification result = _verifier.Verify(
+            Encoding.UTF8.GetBytes(document),
+            LicenseDocumentTestData.DeviceIdentity,
+            LicenseDocumentTestData.Context);
+
+        Assert.False(result.IsValid);
+        Assert.Equal("DOCUMENT_INVALID", result.Code);
         Assert.Null(result.License);
     }
 
@@ -409,6 +420,15 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
     }
 
     private string ValidJson() => Encoding.UTF8.GetString(ValidDocument());
+
+    private string DocumentWithNestedCapabilities(int levels)
+    {
+        string nestedCapabilities = new string('[', levels) + "0" + new string(']', levels);
+        return ValidJson().Replace(
+            "\"capabilities\":[]",
+            $"\"capabilities\":{nestedCapabilities}",
+            StringComparison.Ordinal);
+    }
 
     private SignedLicenseEnvelope SignedEnvelope() =>
         SignedEnvelope(LicenseDocumentTestData.UnsignedEnvelope());
