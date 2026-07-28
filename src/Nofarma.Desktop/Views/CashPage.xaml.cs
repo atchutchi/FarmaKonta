@@ -85,8 +85,12 @@ public sealed partial class CashPage : Page
 
     private void OnMovementFieldLostFocus(object sender, RoutedEventArgs e)
     {
-        _ = IsMovementInputValid();
+        _ = _viewModel.ValidateManualMovement(
+            CashMovementType.ManualEntry,
+            MovementAmountBox.Text,
+            MovementReasonBox.Text);
         RenderValidation();
+        UpdateMovementActions();
     }
 
     private async void OnRecordEntry(object sender, RoutedEventArgs e) =>

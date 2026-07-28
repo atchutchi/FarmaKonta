@@ -287,6 +287,34 @@ public sealed class CashViewModelTests
         Assert.DoesNotContain("Motivo", viewModel.ValidationErrors.Keys);
     }
 
+    [Fact]
+    public async Task ManualAvailabilityCheckIsPureAndExplicitValidationWritesFieldErrors()
+    {
+        var operations = new CashOperations
+        {
+            CurrentShift = Shift(openingCash: 50_000, expectedCash: 50_000)
+        };
+        var viewModel = new CashViewModel(operations);
+        await viewModel.LoadAsync(TestContext.Current.CancellationToken);
+
+        bool canSubmit = viewModel.CanSubmitManualMovement(
+            CashMovementType.ManualEntry,
+            string.Empty,
+            string.Empty);
+
+        Assert.False(canSubmit);
+        Assert.Empty(viewModel.ValidationErrors);
+
+        bool valid = viewModel.ValidateManualMovement(
+            CashMovementType.ManualEntry,
+            string.Empty,
+            string.Empty);
+
+        Assert.False(valid);
+        Assert.Contains("Valor do movimento", viewModel.ValidationErrors.Keys);
+        Assert.Contains("Motivo", viewModel.ValidationErrors.Keys);
+    }
+
     private static CashShiftSummary Shift(
         long openingCash,
         long expectedCash,

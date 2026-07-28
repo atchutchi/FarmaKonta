@@ -82,11 +82,16 @@ public sealed class SqliteCashShiftStore(
                 command => command.PharmacyId == pharmacyId.Value &&
                     command.IdempotencyKey == idempotencyKey,
                 cancellationToken).ConfigureAwait(false);
-        return record is null
-            ? null
-            : new CashCommandResult(
-                record.RequestFingerprint,
-                DeserializeSnapshot(record.ResultJson));
+        if (record is null)
+        {
+            return null;
+        }
+
+        CashShiftSummary result = await DeserializeSnapshotAsync(
+            db,
+            record,
+            cancellationToken).ConfigureAwait(false);
+        return new CashCommandResult(record.RequestFingerprint, result);
     }
 
     public async Task<CashShiftSummary> SaveOpenedAsync(
@@ -339,7 +344,10 @@ public sealed class SqliteCashShiftStore(
             throw new CashShiftConflictException();
         }
 
-        return DeserializeSnapshot(existing.ResultJson);
+        return await DeserializeSnapshotAsync(
+            db,
+            existing,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static void AddCommand(
@@ -531,12 +539,39 @@ public sealed class SqliteCashShiftStore(
                 summary.MovementCount),
             JsonOptions);
 
-    private static CashShiftSummary DeserializeSnapshot(string json)
+    private static async Task<CashShiftSummary> DeserializeSnapshotAsync(
+        NofarmaDbContext db,
+        CashCommandRecord command,
+        CancellationToken cancellationToken)
     {
         CashShiftSnapshot snapshot = JsonSerializer.Deserialize<CashShiftSnapshot>(
-            json,
+            command.ResultJson,
             JsonOptions) ?? throw new InvalidOperationException(
                 "O resultado idempotente do turno de caixa não é válido.");
+        if (snapshot.Id != command.CashShiftId ||
+            snapshot.PharmacyId != command.PharmacyId ||
+            snapshot.TotalEntriesXof.HasValue != snapshot.TotalExitsXof.HasValue)
+        {
+            throw new InvalidOperationException(
+                "O resultado idempotente do turno de caixa não é válido.");
+        }
+
+        long totalEntriesXof;
+        long totalExitsXof;
+        if (snapshot.TotalEntriesXof is { } entries &&
+            snapshot.TotalExitsXof is { } exits)
+        {
+            totalEntriesXof = entries;
+            totalExitsXof = exits;
+        }
+        else
+        {
+            (totalEntriesXof, totalExitsXof) = await RebuildLegacySnapshotTotalsAsync(
+                db,
+                snapshot,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         return new CashShiftSummary(
             new EntityId(snapshot.Id),
             new EntityId(snapshot.PharmacyId),
@@ -544,14 +579,78 @@ public sealed class SqliteCashShiftStore(
             new EntityId(snapshot.UserId),
             (CashShiftStatus)snapshot.Status,
             snapshot.OpeningCashXof,
-            snapshot.TotalEntriesXof,
-            snapshot.TotalExitsXof,
+            totalEntriesXof,
+            totalExitsXof,
             snapshot.ExpectedCashXof,
             snapshot.CountedCashXof,
             snapshot.DifferenceXof,
             UtcInstant.From(snapshot.OpenedAtUtc),
             snapshot.ClosedAtUtc is { } closedAt ? UtcInstant.From(closedAt) : null,
             snapshot.MovementCount);
+    }
+
+    private static async Task<(long TotalEntriesXof, long TotalExitsXof)> RebuildLegacySnapshotTotalsAsync(
+        NofarmaDbContext db,
+        CashShiftSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        if (snapshot.MovementCount < 0)
+        {
+            throw new InvalidOperationException(
+                "O resultado idempotente do turno de caixa não é válido.");
+        }
+
+        CashShiftRecord? record = await db.CashShifts.AsNoTracking()
+            .SingleOrDefaultAsync(
+                shift => shift.Id == snapshot.Id,
+                cancellationToken).ConfigureAwait(false);
+        if (record is null ||
+            record.PharmacyId != snapshot.PharmacyId ||
+            record.DeviceId != snapshot.DeviceId ||
+            record.UserId != snapshot.UserId ||
+            record.OpeningCashXof != snapshot.OpeningCashXof ||
+            record.OpenedAtUtc != snapshot.OpenedAtUtc)
+        {
+            throw new InvalidOperationException(
+                "O resultado idempotente do turno de caixa não é válido.");
+        }
+
+        CashMovementRecord[] movements = await db.CashMovements.AsNoTracking()
+            .Where(movement => movement.CashShiftId == snapshot.Id)
+            .OrderBy(movement => movement.Sequence)
+            .Take(snapshot.MovementCount)
+            .ToArrayAsync(cancellationToken).ConfigureAwait(false);
+        if (movements.Length != snapshot.MovementCount)
+        {
+            throw new InvalidOperationException(
+                "O resultado idempotente do turno de caixa não é válido.");
+        }
+
+        CashShift historical = CashShift.Open(
+            new EntityId(record.Id),
+            new EntityId(record.PharmacyId),
+            new EntityId(record.DeviceId),
+            new EntityId(record.UserId),
+            Money.Xof(record.OpeningCashXof),
+            UtcInstant.From(record.OpenedAtUtc));
+        foreach (CashMovementRecord movement in movements)
+        {
+            historical.RecordMovement(
+                new EntityId(movement.Id),
+                (CashMovementType)movement.Type,
+                Money.Xof(movement.AmountXof),
+                movement.SourceSaleId is { } sourceId ? new EntityId(sourceId) : null,
+                movement.Reason,
+                UtcInstant.From(movement.OccurredAtUtc));
+        }
+
+        if (historical.ExpectedCash.Amount != snapshot.ExpectedCashXof)
+        {
+            throw new InvalidOperationException(
+                "O resultado idempotente do turno de caixa não é válido.");
+        }
+
+        return (historical.TotalEntries.Amount, historical.TotalExits.Amount);
     }
 
     private static void ValidateCommon(
@@ -613,8 +712,8 @@ public sealed class SqliteCashShiftStore(
         Guid UserId,
         int Status,
         long OpeningCashXof,
-        long TotalEntriesXof,
-        long TotalExitsXof,
+        long? TotalEntriesXof,
+        long? TotalExitsXof,
         long ExpectedCashXof,
         long? CountedCashXof,
         long? DifferenceXof,

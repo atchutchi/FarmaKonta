@@ -115,6 +115,86 @@ public sealed class CashShiftTransactionTests
     }
 
     [Fact]
+    public async Task LegacyIdempotentSnapshotRebuildsHistoricalCashTotalsFromPersistedMovements()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using CashTestDatabase fixture = await CashTestDatabase.CreateAsync();
+        var store = new SqliteCashShiftStore(fixture.Options);
+        CashShiftService service = CashTestDatabase.CreateService(store);
+        LocalSession session = fixture.Session();
+        await service.OpenAsync(
+            session,
+            new OpenCashShiftRequest(1_000, "open:legacy-snapshot"),
+            cancellationToken);
+        CashShiftSummary original = await service.RecordManualMovementAsync(
+            session,
+            new ManualCashMovementRequest(
+                CashMovementType.ManualEntry,
+                100,
+                "Reforço",
+                "entry:legacy-original"),
+            cancellationToken);
+
+        await using (var seed = new NofarmaDbContext(fixture.Options))
+        {
+            CashCommandRecord originalCommand = await seed.CashCommands.AsNoTracking()
+                .SingleAsync(
+                    command => command.IdempotencyKey == "entry:legacy-original",
+                    cancellationToken);
+            string previousFormatJson = JsonSerializer.Serialize(new
+            {
+                id = original.Id.Value,
+                pharmacyId = original.PharmacyId.Value,
+                deviceId = original.DeviceId.Value,
+                userId = original.UserId.Value,
+                status = (int)original.Status,
+                openingCashXof = original.OpeningCashXof,
+                expectedCashXof = original.ExpectedCashXof,
+                countedCashXof = original.CountedCashXof,
+                differenceXof = original.DifferenceXof,
+                openedAtUtc = original.OpenedAtUtc.Value,
+                closedAtUtc = original.ClosedAtUtc?.Value,
+                movementCount = original.MovementCount
+            });
+            seed.CashCommands.Add(new CashCommandRecord
+            {
+                Id = Guid.NewGuid(),
+                PharmacyId = original.PharmacyId.Value,
+                IdempotencyKey = "entry:legacy-repeat",
+                OperationType = originalCommand.OperationType,
+                RequestFingerprint = originalCommand.RequestFingerprint,
+                CashShiftId = original.Id.Value,
+                ResultJson = previousFormatJson,
+                CreatedAtUtc = original.OpenedAtUtc.Value
+            });
+            await seed.SaveChangesAsync(cancellationToken);
+        }
+
+        await service.RecordManualMovementAsync(
+            session,
+            new ManualCashMovementRequest(
+                CashMovementType.ManualExit,
+                25,
+                "Despesa posterior",
+                "exit:after-legacy"),
+            cancellationToken);
+
+        CashShiftSummary repeated = await service.RecordManualMovementAsync(
+            session,
+            new ManualCashMovementRequest(
+                CashMovementType.ManualEntry,
+                100,
+                "Reforço",
+                "entry:legacy-repeat"),
+            cancellationToken);
+
+        Assert.Equal(100, repeated.TotalEntriesXof);
+        Assert.Equal(0, repeated.TotalExitsXof);
+        Assert.Equal(1_100, repeated.ExpectedCashXof);
+        Assert.Equal(1, repeated.MovementCount);
+    }
+
+    [Fact]
     public async Task ReusedKeyWithDifferentFingerprintIsRejected()
     {
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;
