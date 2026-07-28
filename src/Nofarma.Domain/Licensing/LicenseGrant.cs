@@ -21,6 +21,11 @@ public sealed class LicenseGrant
         EnsureNonEmpty(establishmentId, nameof(establishmentId));
         EnsureNonEmpty(deviceId, nameof(deviceId));
 
+        if (plan is not (LicensePlan.Monthly or LicensePlan.Annual))
+        {
+            throw new ArgumentException("The license plan is not supported.", nameof(plan));
+        }
+
         if (establishmentId != pharmacyId)
         {
             throw new ArgumentException(

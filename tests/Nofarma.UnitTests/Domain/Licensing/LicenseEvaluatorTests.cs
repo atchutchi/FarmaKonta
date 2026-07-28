@@ -104,6 +104,15 @@ public sealed class LicenseEvaluatorTests
         Assert.Throws<ArgumentException>(() => LicenseTestData.Create(deviceId: new EntityId(Guid.Empty)));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(99)]
+    public void GrantRejectsAnUnsupportedLicensePlan(int planValue)
+    {
+        Assert.Throws<ArgumentException>(() => LicenseTestData.Create(
+            plan: (LicensePlan)planValue));
+    }
+
     [Fact]
     public void GrantRejectsAnEstablishmentAssignedToAnotherPharmacy()
     {
