@@ -11,13 +11,18 @@ public sealed partial class LoginPage : Page
 {
     private readonly LoginViewModel _viewModel;
     private readonly NavigationService _navigation;
+    private readonly DesktopLicenseConfiguration _licenseConfiguration;
     private bool _loaded;
 
     public LoginPage()
     {
         _viewModel = App.Services.GetRequiredService<LoginViewModel>();
         _navigation = App.Services.GetRequiredService<NavigationService>();
+        _licenseConfiguration = App.Services.GetRequiredService<DesktopLicenseConfiguration>();
         InitializeComponent();
+        QaModeText.Visibility = _licenseConfiguration.IsQa
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)

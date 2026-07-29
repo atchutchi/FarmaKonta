@@ -24,7 +24,9 @@ public sealed class LicensePageOperationsTests
             CancellationToken.None);
 
         Assert.Equal(LicenseState.Missing, snapshot.Status.State);
-        Assert.Equal("test-thumbprint", snapshot.DeviceKeyThumbprint);
+        Assert.Equal(
+            "SHA256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+            snapshot.DeviceKeyThumbprint);
         Assert.False(operations.IsQa);
     }
 
@@ -41,7 +43,7 @@ public sealed class LicensePageOperationsTests
         ReadOnlyMemory<byte> request = await operations.CreateRequestAsync(
             CancellationToken.None);
 
-        const string expected = "{\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"11111111-1111-1111-1111-111111111111\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"test-thumbprint\"}";
+        const string expected = "{\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"11111111-1111-1111-1111-111111111111\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"SHA256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\"}";
         Assert.Equal(expected, Encoding.UTF8.GetString(request.Span));
         Assert.True(operations.IsQa);
     }

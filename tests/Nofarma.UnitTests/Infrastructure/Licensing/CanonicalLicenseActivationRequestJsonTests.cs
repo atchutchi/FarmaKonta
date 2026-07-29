@@ -16,7 +16,7 @@ public sealed class CanonicalLicenseActivationRequestJsonTests
             request,
             LicenseBuildChannel.Qa);
 
-        const string expected = "{\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"11111111-1111-1111-1111-111111111111\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"SHA256:DEVICE-TEST\"}";
+        const string expected = "{\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"11111111-1111-1111-1111-111111111111\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"SHA256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\"}";
         Assert.Equal(expected, Encoding.UTF8.GetString(document));
         Assert.False(document.AsSpan().StartsWith(Encoding.UTF8.GetPreamble()));
         Assert.DoesNotContain("password", expected, StringComparison.OrdinalIgnoreCase);
@@ -40,14 +40,16 @@ public sealed class CanonicalLicenseActivationRequestJsonTests
         Assert.Equal(LicenseBuildChannel.Commercial, envelope.Channel);
         Assert.Equal(Guid.Parse("11111111-1111-1111-1111-111111111111"), envelope.PharmacyId);
         Assert.Equal(Guid.Parse("33333333-3333-3333-3333-333333333333"), envelope.DeviceId);
-        Assert.Equal("SHA256:DEVICE-TEST", envelope.DeviceKeyThumbprint);
+        Assert.Equal(
+            "SHA256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+            envelope.DeviceKeyThumbprint);
     }
 
     [Fact]
     public void ParseRejectsNonCanonicalUnknownOrDuplicateFields()
     {
-        byte[] unknown = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"11111111-1111-1111-1111-111111111111\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"SHA256:DEVICE-TEST\",\"sales\":[]}");
-        byte[] duplicate = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"11111111-1111-1111-1111-111111111111\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"SHA256:DEVICE-TEST\"}");
+        byte[] unknown = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"11111111-1111-1111-1111-111111111111\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"SHA256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\",\"sales\":[]}");
+        byte[] duplicate = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"11111111-1111-1111-1111-111111111111\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"SHA256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\"}");
 
         Assert.False(CanonicalLicenseActivationRequestJson.TryParse(unknown, out _));
         Assert.False(CanonicalLicenseActivationRequestJson.TryParse(duplicate, out _));
@@ -84,12 +86,58 @@ public sealed class CanonicalLicenseActivationRequestJsonTests
             CanonicalLicenseActivationRequestJson.Serialize(empty, LicenseBuildChannel.Qa));
     }
 
+    [Fact]
+    public void SerializationRejectsDifferentEstablishmentOrMalformedThumbprint()
+    {
+        LicenseActivationRequest differentEstablishment = Request() with
+        {
+            Context = Request().Context with
+            {
+                EstablishmentId = new EntityId(
+                    Guid.Parse("22222222-2222-2222-2222-222222222222"))
+            }
+        };
+        LicenseActivationRequest malformedThumbprint = Request() with
+        {
+            Device = Request().Device with
+            {
+                PublicKeyThumbprint = "SHA256:DEVICE-TEST"
+            }
+        };
+
+        Assert.Throws<ArgumentException>(() =>
+            CanonicalLicenseActivationRequestJson.Serialize(
+                differentEstablishment,
+                LicenseBuildChannel.Qa));
+        Assert.Throws<ArgumentException>(() =>
+            CanonicalLicenseActivationRequestJson.Serialize(
+                malformedThumbprint,
+                LicenseBuildChannel.Qa));
+    }
+
+    [Fact]
+    public void ParseRejectsDifferentEstablishmentOrMalformedThumbprint()
+    {
+        byte[] differentEstablishment = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"22222222-2222-2222-2222-222222222222\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"SHA256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\"}");
+        byte[] malformedThumbprint = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"channel\":1,\"pharmacyId\":\"11111111-1111-1111-1111-111111111111\",\"establishmentId\":\"11111111-1111-1111-1111-111111111111\",\"deviceId\":\"33333333-3333-3333-3333-333333333333\",\"deviceKeyThumbprint\":\"SHA256:DEVICE-TEST\"}");
+
+        Assert.False(CanonicalLicenseActivationRequestJson.TryParse(
+            differentEstablishment,
+            out _));
+        Assert.False(CanonicalLicenseActivationRequestJson.TryParse(
+            malformedThumbprint,
+            out _));
+    }
+
     private static LicenseActivationRequest Request()
     {
         var pharmacyId = new EntityId(Guid.Parse("11111111-1111-1111-1111-111111111111"));
         var deviceId = new EntityId(Guid.Parse("33333333-3333-3333-3333-333333333333"));
         return new LicenseActivationRequest(
             new LicenseContext(pharmacyId, pharmacyId, deviceId),
-            new DeviceLicenseIdentity(pharmacyId, deviceId, "SHA256:DEVICE-TEST"));
+            new DeviceLicenseIdentity(
+                pharmacyId,
+                deviceId,
+                "SHA256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"));
     }
 }

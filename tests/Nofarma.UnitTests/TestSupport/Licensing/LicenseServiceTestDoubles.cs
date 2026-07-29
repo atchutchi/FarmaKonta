@@ -172,7 +172,7 @@ internal static class LicenseServiceTestFactory
     internal static readonly DeviceLicenseIdentity DeviceIdentity = new(
         LicenseTestData.PharmacyId,
         LicenseTestData.DeviceId,
-        "test-thumbprint");
+        "SHA256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF");
 
     internal static LicenseService Create(
         ILicenseStore store,

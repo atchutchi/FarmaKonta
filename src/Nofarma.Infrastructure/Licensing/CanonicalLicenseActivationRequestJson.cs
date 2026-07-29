@@ -19,7 +19,8 @@ public static class CanonicalLicenseActivationRequestJson
     public const int MaximumDocumentBytes = 4 * 1024;
 
     private const int MaximumDepth = 4;
-    private const int MaximumThumbprintCharacters = 512;
+    private const string ThumbprintPrefix = "SHA256:";
+    private const int Sha256HexCharacters = 64;
 
     private static readonly HashSet<string> PropertyNames = new(StringComparer.Ordinal)
     {
@@ -90,6 +91,7 @@ public static class CanonicalLicenseActivationRequestJson
                 || !TryReadGuid(root, "deviceId", out Guid deviceId)
                 || !TryReadThumbprint(root, out string? thumbprint)
                 || pharmacyId == Guid.Empty
+                || establishmentId != pharmacyId
                 || establishmentId == Guid.Empty
                 || deviceId == Guid.Empty)
             {
@@ -166,13 +168,13 @@ public static class CanonicalLicenseActivationRequestJson
         }
 
         if (request.Context.PharmacyId != request.Device.PharmacyId
+            || request.Context.EstablishmentId != request.Context.PharmacyId
             || request.Context.DeviceId != request.Device.DeviceId)
         {
             throw new ArgumentException("The activation request identity does not match its context.", nameof(request));
         }
 
-        if (string.IsNullOrWhiteSpace(request.Device.PublicKeyThumbprint)
-            || request.Device.PublicKeyThumbprint.Length > MaximumThumbprintCharacters)
+        if (!IsCanonicalThumbprint(request.Device.PublicKeyThumbprint))
         {
             throw new ArgumentException("The activation request device thumbprint is invalid.", nameof(request));
         }
@@ -213,8 +215,28 @@ public static class CanonicalLicenseActivationRequestJson
         thumbprint = property.ValueKind == JsonValueKind.String
             ? property.GetString()
             : null;
-        return !string.IsNullOrWhiteSpace(thumbprint)
-            && thumbprint.Length <= MaximumThumbprintCharacters;
+        return IsCanonicalThumbprint(thumbprint);
+    }
+
+    private static bool IsCanonicalThumbprint(string? thumbprint)
+    {
+        if (thumbprint is null
+            || thumbprint.Length != ThumbprintPrefix.Length + Sha256HexCharacters
+            || !thumbprint.StartsWith(ThumbprintPrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        foreach (char character in thumbprint.AsSpan(ThumbprintPrefix.Length))
+        {
+            if (character is not (>= '0' and <= '9')
+                and not (>= 'A' and <= 'F'))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static string CanonicalGuid(Guid value) => value.ToString("D");

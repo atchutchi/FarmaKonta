@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Nofarma.Desktop.Services;
 using Nofarma.Desktop.ViewModels;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -36,7 +37,14 @@ public sealed partial class LicensePage : Page, IDisposable
         }
 
         _loaded = true;
-        await _viewModel.LoadAsync(_lifetime.Token);
+        await PageLoadCancellationPolicy.RunAsync(
+            _viewModel.LoadAsync,
+            _lifetime.Token);
+        if (_disposed || _lifetime.IsCancellationRequested)
+        {
+            return;
+        }
+
         RefreshSurface();
     }
 

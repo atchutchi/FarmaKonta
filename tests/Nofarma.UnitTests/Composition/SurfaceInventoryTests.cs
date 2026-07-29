@@ -77,6 +77,22 @@ public sealed class SurfaceInventoryTests
         Assert.Contains("SizeInt32(1366, 768)", mainWindow, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("LoginPage")]
+    [InlineData("SetupWizardPage")]
+    public void QaBuildKeepsModeLabelVisibleOnEveryStartupSurface(string pageName)
+    {
+        string root = FindRepositoryRoot();
+        string views = Path.Combine(root, "src", "Nofarma.Desktop", "Views");
+        string xaml = File.ReadAllText(Path.Combine(views, $"{pageName}.xaml"));
+        string code = File.ReadAllText(Path.Combine(views, $"{pageName}.xaml.cs"));
+
+        Assert.Contains("x:Name=\"QaModeText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Modo QA\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("GetRequiredService<DesktopLicenseConfiguration>()", code, StringComparison.Ordinal);
+        Assert.Contains("QaModeText.Visibility = _licenseConfiguration.IsQa", code, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);

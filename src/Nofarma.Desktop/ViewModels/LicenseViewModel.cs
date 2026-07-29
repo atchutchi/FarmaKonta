@@ -59,6 +59,8 @@ public sealed class LicenseViewModel(ILicensePageOperations operations)
 
     public string? SuccessMessage { get; private set; }
 
+    public bool LastImportWasPersisted { get; private set; }
+
     public async Task LoadAsync(CancellationToken cancellationToken)
     {
         if (IsBusy)
@@ -125,6 +127,8 @@ public sealed class LicenseViewModel(ILicensePageOperations operations)
             return false;
         }
 
+        LastImportWasPersisted = false;
+
         if (document.Length == 0)
         {
             ErrorMessage = "O ficheiro está vazio. Selecciona uma licença emitida pela ABIPTOM.";
@@ -146,13 +150,24 @@ public sealed class LicenseViewModel(ILicensePageOperations operations)
         try
         {
             await operations.ImportAsync(stableDocument, cancellationToken);
+            LastImportWasPersisted = true;
             await LoadCoreAsync(cancellationToken);
             SuccessMessage = "Licença importada e estado actualizado.";
             return true;
         }
+        catch (OperationCanceledException) when (LastImportWasPersisted)
+        {
+            MarkPersistedImportUnconfirmed();
+            return false;
+        }
         catch (LicenseImportException exception)
         {
             ErrorMessage = RecoveryMessage(exception.Code);
+            return false;
+        }
+        catch (Exception) when (LastImportWasPersisted)
+        {
+            MarkPersistedImportUnconfirmed();
             return false;
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
@@ -234,6 +249,18 @@ public sealed class LicenseViewModel(ILicensePageOperations operations)
 
         string date = instant.Value.ToUniversalTime().ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
         return inclusive ? $"{date}, inclusive" : date;
+    }
+
+    private void MarkPersistedImportUnconfirmed()
+    {
+        StatusText = "Estado por confirmar";
+        StatusDescription = "A licença foi instalada. O estado actualizado ainda não foi confirmado.";
+        PresentationKind = LicensePresentationKind.Warning;
+        PlanText = "Por confirmar";
+        ValidFromText = "Por confirmar";
+        ValidUntilText = "Por confirmar";
+        GraceUntilText = "Por confirmar";
+        ErrorMessage = "A licença foi instalada, mas não foi possível confirmar o novo estado. Volta a abrir esta página para verificar a licença.";
     }
 
     private static string RecoveryMessage(string code) => code switch

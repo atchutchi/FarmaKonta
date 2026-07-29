@@ -18,6 +18,15 @@
                 FontWeight="SemiBold"
                 Foreground="White"
                 Text="NôFarma by ABIPTOM" />
+            <TextBlock
+                x:Name="QaModeText"
+                Margin="20,0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                FontWeight="SemiBold"
+                Foreground="#FFE082"
+                Text="Modo QA"
+                Visibility="Collapsed" />
         </Grid>
 
         <ScrollViewer Grid.Row="1">

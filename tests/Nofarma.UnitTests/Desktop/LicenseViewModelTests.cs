@@ -107,6 +107,62 @@ public sealed class LicenseViewModelTests
         Assert.Equal("Licença activa", viewModel.StatusText);
         Assert.Equal("Licença importada e estado actualizado.", viewModel.SuccessMessage);
         Assert.Null(viewModel.ErrorMessage);
+        Assert.True(viewModel.LastImportWasPersisted);
+    }
+
+    [Fact]
+    public async Task PersistedImportWithFailedReloadReportsInstalledButUnconfirmedState()
+    {
+        var operations = new StubLicensePageOperations(Snapshot(LicenseState.Valid));
+        var viewModel = new LicenseViewModel(operations);
+        await viewModel.LoadAsync(CancellationToken.None);
+        operations.LoadOverride = _ =>
+            Task.FromException<LicensePageSnapshot>(new IOException("reload failed"));
+
+        bool imported = await viewModel.ImportAsync([1, 2, 3], CancellationToken.None);
+
+        Assert.False(imported);
+        Assert.True(viewModel.LastImportWasPersisted);
+        Assert.Equal("Estado por confirmar", viewModel.StatusText);
+        Assert.Equal(
+            "A licença foi instalada. O estado actualizado ainda não foi confirmado.",
+            viewModel.StatusDescription);
+        Assert.Equal("Por confirmar", viewModel.PlanText);
+        Assert.Equal("Por confirmar", viewModel.ValidUntilText);
+        Assert.Equal(
+            "A licença foi instalada, mas não foi possível confirmar o novo estado. Volta a abrir esta página para verificar a licença.",
+            viewModel.ErrorMessage);
+        Assert.Null(viewModel.SuccessMessage);
+        Assert.DoesNotContain("mantivemos", viewModel.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.False(viewModel.IsBusy);
+    }
+
+    [Fact]
+    public async Task PersistedImportWithCancelledReloadReportsInstalledButUnconfirmedState()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var operations = new StubLicensePageOperations(Snapshot(LicenseState.Valid));
+        var viewModel = new LicenseViewModel(operations);
+        await viewModel.LoadAsync(CancellationToken.None);
+        operations.LoadOverride = token =>
+        {
+            cancellation.Cancel();
+            return Task.FromCanceled<LicensePageSnapshot>(token);
+        };
+
+        bool imported = await viewModel.ImportAsync([1, 2, 3], cancellation.Token);
+
+        Assert.False(imported);
+        Assert.True(viewModel.LastImportWasPersisted);
+        Assert.Equal("Estado por confirmar", viewModel.StatusText);
+        Assert.Equal(
+            "A licença foi instalada. O estado actualizado ainda não foi confirmado.",
+            viewModel.StatusDescription);
+        Assert.Equal(
+            "A licença foi instalada, mas não foi possível confirmar o novo estado. Volta a abrir esta página para verificar a licença.",
+            viewModel.ErrorMessage);
+        Assert.Null(viewModel.SuccessMessage);
+        Assert.False(viewModel.IsBusy);
     }
 
     [Theory]
@@ -156,6 +212,7 @@ public sealed class LicenseViewModelTests
 
         Assert.False(viewModel.IsBusy);
         Assert.Equal("Licença activa", viewModel.StatusText);
+        Assert.False(viewModel.LastImportWasPersisted);
     }
 
     [Fact]

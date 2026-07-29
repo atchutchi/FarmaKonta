@@ -36,6 +36,7 @@
     <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\LicenseViewModel.cs" Link="Desktop\LicenseViewModel.cs" />
     <Compile Include="..\..\src\Nofarma.Desktop\Services\LicensePageOperations.cs" Link="Desktop\LicensePageOperations.cs" />
     <Compile Include="..\..\src\Nofarma.Desktop\Services\DesktopLicenseConfiguration.cs" Link="Desktop\DesktopLicenseConfiguration.cs" />
+    <Compile Include="..\..\src\Nofarma.Desktop\Services\PageLoadCancellationPolicy.cs" Link="Desktop\PageLoadCancellationPolicy.cs" />
   </ItemGroup>
 
 </Project>

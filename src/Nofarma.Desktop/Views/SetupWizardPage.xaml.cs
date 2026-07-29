@@ -12,13 +12,18 @@ namespace Nofarma.Desktop.Views;
 public sealed partial class SetupWizardPage : Page
 {
     private readonly NavigationService _navigation;
+    private readonly DesktopLicenseConfiguration _licenseConfiguration;
     private int _step = 1;
 
     public SetupWizardPage()
     {
         ViewModel = App.Services.GetRequiredService<SetupWizardViewModel>();
         _navigation = App.Services.GetRequiredService<NavigationService>();
+        _licenseConfiguration = App.Services.GetRequiredService<DesktopLicenseConfiguration>();
         InitializeComponent();
+        QaModeText.Visibility = _licenseConfiguration.IsQa
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     public SetupWizardViewModel ViewModel { get; }

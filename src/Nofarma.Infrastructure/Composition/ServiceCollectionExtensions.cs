@@ -28,13 +28,14 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddNofarmaLocalIdentity(
         this IServiceCollection services,
         string? databasePath = null,
-        string? secretsDirectory = null,
+        string? credentialSecretsDirectory = null,
         LicenseBuildChannel licenseChannel = LicenseBuildChannel.Unlicensed,
-        IEnumerable<KeyValuePair<string, ReadOnlyMemory<byte>>>? trustedPublicKeys = null)
+        IEnumerable<KeyValuePair<string, ReadOnlyMemory<byte>>>? trustedPublicKeys = null,
+        string? licensingSecretsDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         databasePath ??= LocalDatabasePath.GetDefault();
-        string licenseSecretsDirectory = secretsDirectory ?? Path.Combine(
+        string licenseSecretsDirectory = licensingSecretsDirectory ?? Path.Combine(
             Path.GetDirectoryName(Path.GetFullPath(databasePath))!,
             "licensing-secrets");
         string connectionString = LocalDatabasePath.BuildConnectionString(databasePath);
@@ -76,7 +77,7 @@ public static class ServiceCollectionExtensions
                 licenseSecretsDirectory,
                 channel: licenseChannel));
         services.AddSingleton<ICredentialPepperStore>(
-            new WindowsCredentialPepperStore(secretsDirectory));
+            new WindowsCredentialPepperStore(credentialSecretsDirectory));
         services.AddSingleton<ICredentialHasher, Pbkdf2CredentialHasher>();
         services.AddSingleton<IRecoveryCodeGenerator, SecureRecoveryCodeGenerator>();
         services.AddSingleton<IUtcClock, SystemUtcClock>();

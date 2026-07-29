@@ -4,7 +4,7 @@ Status: complete
 
 Base: `a3f79e5`
 
-Commit previsto: `feat: add offline licence activation UI`
+Commit de implementação: `6bc7b6de932db1c55cb1e492c9b1ac415340e1f0`
 
 ## RED evidence
 
@@ -31,15 +31,21 @@ Foram observados quatro ciclos RED adicionais antes da respectiva produção:
 
 O view-model apresenta os sete estados com texto literal em pt-PT, plano,
 datas inclusivas, tolerância e impressão digital pública do dispositivo.
-Importações falhadas preservam o estado anterior. Importações válidas
-recarregam o estado e notificam o shell. Cancelamentos são propagados e o
-estado ocupado é sempre reposto.
+Importações rejeitadas antes da persistência preservam o estado anterior.
+Importações persistidas recarregam o estado e notificam o shell. Se a recarga
+falhar ou for cancelada depois da persistência, a interface declara que a
+licença foi instalada mas que o novo estado ainda não foi confirmado. Nunca
+afirma nesse caso que o estado anterior foi mantido. Cancelamentos anteriores
+à persistência são propagados e o estado ocupado é sempre reposto.
 
 O pedido `.nofarma-request` usa JSON UTF-8 canónico com versão 1 e limite de
 4096 bytes. Contém apenas canal, farmácia, estabelecimento, dispositivo e
 impressão digital pública. O parser rejeita campos desconhecidos, repetidos,
 identificadores vazios, versões futuras, JSON não canónico e excesso de
-tamanho. O formato público fica disponível para o emissor da Task 8.
+tamanho. Exige ainda `EstablishmentId == PharmacyId` durante o piloto e uma
+impressão digital no formato exacto `SHA256:` seguido de 64 caracteres
+hexadecimais maiúsculos. O formato público fica disponível para o emissor da
+Task 8.
 
 A página WinUI usa os recursos existentes, dois grupos funcionais, alvos de
 44 píxeis, nomes de automação, foco nativo, `InfoBar`, `ProgressRing` e os
@@ -51,6 +57,23 @@ local separada `ABIPTOM\Nofarma-QA`, mostra permanentemente `Modo QA` e só
 incorpora o recurso público previsto. O canal Commercial exige o recurso
 público comercial no build. Não existe selecção de canal por ambiente ou
 argumento de runtime.
+
+## Correcções após revisão independente
+
+O directório histórico de credenciais voltou a ser
+`%LOCALAPPDATA%\ABIPTOM\Nofarma\secrets`. A composição recebe agora, de forma
+explícita e independente, `credentialSecretsDirectory` e
+`licensingSecretsDirectory`. O teste de upgrade cria uma instalação, uma
+palavra-passe, um PIN e um código de recuperação, cria também a identidade de
+licença no outro directório, reinicia a composição e confirma as três formas
+de acesso. Um mutation check que voltou a ligar o pepper ao directório de
+licenciamento fez o teste falhar como esperado.
+
+O carregamento da página passa por `PageLoadCancellationPolicy`. O
+cancelamento provocado por `OnUnloaded` fica contido no limite do evento
+`async void`, enquanto um cancelamento alheio à vida da página continua a ser
+propagado. O rótulo `Modo QA` está presente na configuração inicial, login,
+shell e página de licença.
 
 ## Visual QA
 
@@ -70,14 +93,14 @@ porque não bloqueia uso, acessibilidade ou conformidade com o âmbito.
 
 ## GREEN evidence
 
-1. Testes focados Desktop e JSON canónico: 71 aprovados.
+1. Testes focados das correcções Desktop e JSON canónico: 42 aprovados.
 2. Teste focado de composição explícita QA: 1 aprovado.
 3. Build Desktop Release `Unlicensed`: 0 avisos e 0 erros.
 4. Build Desktop Release `Commercial`: falha esperada com o erro exacto
    `NFLC001: commercial public key is not provisioned`.
 5. Build Release completo com `-warnaserror`: 0 avisos e 0 erros.
-6. Suite Release completa: 3 testes de arquitectura, 442 testes unitários e
-   104 testes de integração aprovados.
+6. Suite Release completa: 3 testes de arquitectura, 450 testes unitários e
+   105 testes de integração aprovados.
 7. `git diff --check`: aprovado.
 8. Pesquisa de material privado em código, testes e output Desktop: nenhum
    padrão ou ficheiro suspeito encontrado.
@@ -85,6 +108,7 @@ porque não bloqueia uso, acessibilidade ou conformidade com o âmbito.
    correspondência encontrada.
 10. `dotnet format --verify-no-changes` limitado aos ficheiros C# desta tarefa:
     aprovado.
+11. Build Desktop Release `QA`: 0 avisos e 0 erros.
 
 A primeira execução da suite completa expôs dois resultados. O teste de
 superfície detectou a alteração acidental do limiar adaptativo de 1450 para
@@ -101,6 +125,12 @@ pública comercial. Não foi possível validar uma licença QA realmente assinad
 nesta tarefa porque o emissor separado pertence à Task 8. Os contratos de
 pedido, importação, erro, recarga e separação de canais ficaram cobertos por
 testes automatizados.
+
+Existe um bloqueador obrigatório atribuído à Task 8. O gate anti-contaminação
+tem de provar que uma chave pública QA não é aceite como chave Commercial,
+mesmo que seja copiada ou fornecida no caminho comercial. Esta verificação
+não foi implementada na Task 7 porque depende do emissor QA e da chave pública
+provisionada pela Task 8.
 
 O verificador global de formatação continua a apontar problemas anteriores a
 esta tarefa em ficheiros de inventário, compras, vendas e testes relacionados.
