@@ -442,6 +442,114 @@ public sealed class QaIssuerTests
     }
 
     [Fact]
+    public void FailureAfterPublicCommitReturnsTheConfirmedNewPair()
+    {
+        using var directory = new TemporaryDirectory("nofarma-qa-post-public-failure");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        byte[] previousPrivate = File.ReadAllBytes(privateKeyPath);
+        AssertNoRecoveryArtifacts(privateKeyPath, publicKeyPath);
+        var failingStore = new QaKeyStore(
+            privateKeyPath,
+            protector,
+            new FailAfterPublicCommit());
+
+        QaKeyProvisioningResult result = failingStore.Provision(
+            publicKeyPath,
+            rotate: true,
+            new StringReader("ROTATE-QA-KEY"));
+        byte[] committedPrivate = File.ReadAllBytes(privateKeyPath);
+        byte[] committedPublic = File.ReadAllBytes(publicKeyPath);
+
+        Assert.NotEqual(previousPrivate, committedPrivate);
+        Assert.Equal(
+            result.PublicKey.ToArray(),
+            Convert.FromBase64String(File.ReadAllText(publicKeyPath)));
+        var repeatedStore = new QaKeyStore(privateKeyPath, protector);
+        repeatedStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        Assert.Equal(committedPrivate, File.ReadAllBytes(privateKeyPath));
+        Assert.Equal(committedPublic, File.ReadAllBytes(publicKeyPath));
+        AssertNoRecoveryArtifacts(privateKeyPath, publicKeyPath);
+    }
+
+    [Fact]
+    public async Task SecondOperationWaitsUntilTheRotationReleasesTheKeyLock()
+    {
+        using var directory = new TemporaryDirectory("nofarma-qa-key-lock");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        using var rotationPaused = new ManualResetEventSlim();
+        using var releaseRotation = new ManualResetEventSlim();
+        using var sharedLock = new BlockingKeyStoreLock();
+        var firstStore = new QaKeyStore(
+            privateKeyPath,
+            protector,
+            new PauseAfterPrivateCommit(rotationPaused, releaseRotation),
+            keyStoreLock: sharedLock);
+        var secondStore = new QaKeyStore(
+            privateKeyPath,
+            protector,
+            keyStoreLock: sharedLock);
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+
+        Task first = Task.Run(() => firstStore.Provision(
+            publicKeyPath,
+            rotate: true,
+            new StringReader("ROTATE-QA-KEY")), cancellationToken);
+        Assert.True(rotationPaused.Wait(TimeSpan.FromSeconds(5), cancellationToken));
+        Task second = Task.Run(() =>
+        {
+            using ECDsa key = secondStore.OpenSigningKey();
+        }, cancellationToken);
+        Assert.True(sharedLock.SecondAcquireAttempted.Wait(
+            TimeSpan.FromSeconds(5),
+            cancellationToken));
+        Assert.False(sharedLock.SecondAcquireEntered.Wait(
+            TimeSpan.FromMilliseconds(250),
+            cancellationToken));
+
+        releaseRotation.Set();
+        await Task.WhenAll(first, second).WaitAsync(
+            TimeSpan.FromSeconds(10),
+            cancellationToken);
+
+        Assert.True(sharedLock.SecondAcquireEntered.IsSet);
+    }
+
+    [Fact]
+    public void ReentrantPublicKeyStoreOperationFailsClosed()
+    {
+        using var directory = new TemporaryDirectory("nofarma-qa-key-reentrant");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        var reentrantFault = new ReenterAfterPrivateCommit();
+        var store = new QaKeyStore(privateKeyPath, protector, reentrantFault);
+        reentrantFault.Reenter = () =>
+        {
+            using ECDsa key = store.OpenSigningKey();
+        };
+
+        QaIssuerException error = Assert.Throws<QaIssuerException>(() => store.Provision(
+            publicKeyPath,
+            rotate: true,
+            new StringReader("ROTATE-QA-KEY")));
+
+        Assert.Equal("QA_ROTATION_FAILED", error.Code);
+        QaIssuerException reentrancy = Assert.IsType<QaIssuerException>(
+            error.InnerException);
+        Assert.Equal("QA_KEY_LOCK_REENTRANCY", reentrancy.Code);
+    }
+
+    [Fact]
     public void RecoveryFailurePreservesTheOwnedPrivateBackup()
     {
         using var directory = new TemporaryDirectory("nofarma-qa-recovery-backup");
@@ -1200,6 +1308,96 @@ public sealed class QaIssuerTests
     }
 
     private sealed class SimulatedProcessTermination : Exception;
+
+    private sealed class FailAfterPublicCommit : IQaKeyProvisioningFaultInjector
+    {
+        public void BeforePublicCommit()
+        {
+        }
+
+        public void BeforeRollback()
+        {
+        }
+
+        public void AfterPublicCommit() =>
+            throw new IOException("Injected post-public commit failure.");
+    }
+
+    private sealed class PauseAfterPrivateCommit(
+        ManualResetEventSlim entered,
+        ManualResetEventSlim release) : IQaKeyProvisioningFaultInjector
+    {
+        public void BeforePublicCommit()
+        {
+        }
+
+        public void BeforeRollback()
+        {
+        }
+
+        public void AfterPrivateCommit()
+        {
+            entered.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(10)))
+            {
+                throw new TimeoutException("The test rotation was not released.");
+            }
+        }
+    }
+
+    private sealed class ReenterAfterPrivateCommit : IQaKeyProvisioningFaultInjector
+    {
+        public Action Reenter { get; set; } = () => { };
+
+        public void BeforePublicCommit()
+        {
+        }
+
+        public void BeforeRollback()
+        {
+        }
+
+        public void AfterPrivateCommit() => Reenter();
+    }
+
+    private sealed class BlockingKeyStoreLock : IQaKeyStoreLock, IDisposable
+    {
+        private readonly SemaphoreSlim _semaphore = new(1, 1);
+        private int _acquisitions;
+
+        public ManualResetEventSlim SecondAcquireAttempted { get; } = new();
+
+        public ManualResetEventSlim SecondAcquireEntered { get; } = new();
+
+        public IDisposable Acquire()
+        {
+            int acquisition = Interlocked.Increment(ref _acquisitions);
+            if (acquisition == 2)
+            {
+                SecondAcquireAttempted.Set();
+            }
+
+            _semaphore.Wait();
+            if (acquisition == 2)
+            {
+                SecondAcquireEntered.Set();
+            }
+
+            return new CallbackDisposable(() => _semaphore.Release());
+        }
+
+        public void Dispose()
+        {
+            SecondAcquireAttempted.Dispose();
+            SecondAcquireEntered.Dispose();
+            _semaphore.Dispose();
+        }
+    }
+
+    private sealed class CallbackDisposable(Action dispose) : IDisposable
+    {
+        public void Dispose() => dispose();
+    }
 
     private sealed class RecordingPrivateParametersExporter
         : IQaPrivateKeyParametersExporter

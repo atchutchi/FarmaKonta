@@ -54,6 +54,7 @@ public sealed class QaKeyStore
     private readonly IQaPrivateKeyParametersExporter _parametersExporter;
     private readonly IQaPathSecurity _pathSecurity;
     private readonly IQaPublicKeyDecoder _publicKeyDecoder;
+    private readonly IQaKeyStoreLock _keyStoreLock;
 
     public QaKeyStore(
         string privateKeyPath,
@@ -61,7 +62,8 @@ public sealed class QaKeyStore
         IQaKeyProvisioningFaultInjector? faultInjector = null,
         IQaPrivateKeyParametersExporter? parametersExporter = null,
         IQaPathSecurity? pathSecurity = null,
-        IQaPublicKeyDecoder? publicKeyDecoder = null)
+        IQaPublicKeyDecoder? publicKeyDecoder = null,
+        IQaKeyStoreLock? keyStoreLock = null)
     {
         if (string.IsNullOrWhiteSpace(privateKeyPath))
         {
@@ -77,6 +79,7 @@ public sealed class QaKeyStore
             DefaultPrivateKeyParametersExporter.Instance;
         _pathSecurity = pathSecurity ?? DefaultPathSecurity.Instance;
         _publicKeyDecoder = publicKeyDecoder ?? QaPublicKeyValidator.DefaultDecoder;
+        _keyStoreLock = keyStoreLock ?? new QaNamedKeyStoreLock(_privateKeyPath);
     }
 
     public static string DefaultPrivateKeyPath => Path.Combine(
@@ -95,13 +98,22 @@ public sealed class QaKeyStore
         bool rotate,
         TextReader confirmationInput)
     {
+        using IDisposable keyStoreLock = _keyStoreLock.Acquire();
+        return ProvisionCore(publicOutputPath, rotate, confirmationInput);
+    }
+
+    private QaKeyProvisioningResult ProvisionCore(
+        string publicOutputPath,
+        bool rotate,
+        TextReader confirmationInput)
+    {
         ArgumentNullException.ThrowIfNull(confirmationInput);
         string fullPublicOutputPath = RequireFullPath(
             publicOutputPath,
             nameof(publicOutputPath));
         _pathSecurity.EnsureSafePath(_privateKeyPath);
         _pathSecurity.EnsureSafePath(fullPublicOutputPath);
-        RecoverInterruptedProvisioning(fullPublicOutputPath);
+        _ = RecoverInterruptedProvisioning(fullPublicOutputPath);
         if (File.Exists(_privateKeyPath))
         {
             _pathSecurity.ProtectPrivateFile(_privateKeyPath);
@@ -120,7 +132,7 @@ public sealed class QaKeyStore
 
         if (exists && !rotate)
         {
-            using ECDsa existingKey = OpenSigningKey();
+            using ECDsa existingKey = OpenSigningKeyCore();
             byte[] existingPublicKey = existingKey.ExportSubjectPublicKeyInfo();
             try
             {
@@ -198,7 +210,7 @@ public sealed class QaKeyStore
         {
             if (exists)
             {
-                using ECDsa previousKey = OpenSigningKey();
+                using ECDsa previousKey = OpenSigningKeyCore();
                 previousPublicKey = previousKey.ExportSubjectPublicKeyInfo();
             }
 
@@ -228,8 +240,9 @@ public sealed class QaKeyStore
 
     public ECDsa OpenSigningKey()
     {
+        using IDisposable keyStoreLock = _keyStoreLock.Acquire();
         _pathSecurity.EnsureSafePath(_privateKeyPath);
-        RecoverInterruptedProvisioning();
+        _ = RecoverInterruptedProvisioning();
         return OpenSigningKeyCore();
     }
 
@@ -378,10 +391,11 @@ public sealed class QaKeyStore
         }
         catch (Exception exception)
         {
+            RecoveryOutcome recoveryOutcome;
             try
             {
                 _faultInjector.BeforeRollback();
-                RecoverInterruptedProvisioning();
+                recoveryOutcome = RecoverInterruptedProvisioning();
             }
             catch (Exception recoveryException)
             {
@@ -389,6 +403,11 @@ public sealed class QaKeyStore
                     "QA_ROTATION_RECOVERY_REQUIRED",
                     "QA key provisioning failed and automatic recovery could not be verified.",
                     new AggregateException(exception, recoveryException));
+            }
+
+            if (recoveryOutcome == RecoveryOutcome.New)
+            {
+                return;
             }
 
             throw new QaIssuerException(
@@ -406,22 +425,26 @@ public sealed class QaKeyStore
         }
     }
 
-    private void RecoverInterruptedProvisioning(string? expectedPublicOutputPath = null)
+    private RecoveryOutcome RecoverInterruptedProvisioning(
+        string? expectedPublicOutputPath = null)
     {
         string manifestPath = RotationManifestPath();
         string manifestTemporary = RotationManifestTemporaryPath();
         if (!File.Exists(manifestPath))
         {
-            bool orphanedRecoveryState = File.Exists(manifestTemporary)
-                || File.Exists(RotationBackupPath(_privateKeyPath))
-                || expectedPublicOutputPath is not null
-                    && File.Exists(RotationBackupPath(expectedPublicOutputPath));
-            if (orphanedRecoveryState)
+            for (int attempt = 0; RecoveryArtifactsExist(
+                     manifestTemporary,
+                     expectedPublicOutputPath); attempt++)
             {
-                throw RecoveryRequired();
+                if (attempt >= 19)
+                {
+                    throw RecoveryRequired();
+                }
+
+                Thread.Sleep(TimeSpan.FromMilliseconds(50));
             }
 
-            return;
+            return RecoveryOutcome.None;
         }
 
         try
@@ -436,18 +459,24 @@ public sealed class QaKeyStore
                 required: true);
             try
             {
-                if (CurrentPairMatches(manifest, newPublicKey, newPair: true)
-                    || CurrentPairMatches(
+                if (CurrentPairMatches(manifest, newPublicKey, newPair: true))
+                {
+                    CleanupRecoveryArtifacts(manifest);
+                    return RecoveryOutcome.New;
+                }
+
+                if (CurrentPairMatches(
                         manifest,
                         previousPublicKey,
                         newPair: false))
                 {
                     CleanupRecoveryArtifacts(manifest);
-                    return;
+                    return RecoveryOutcome.Previous;
                 }
 
                 RestorePreviousState(manifest, previousPublicKey);
                 CleanupRecoveryArtifacts(manifest);
+                return RecoveryOutcome.Previous;
             }
             finally
             {
@@ -469,6 +498,14 @@ public sealed class QaKeyStore
             throw RecoveryRequired(exception);
         }
     }
+
+    private bool RecoveryArtifactsExist(
+        string manifestTemporary,
+        string? expectedPublicOutputPath) =>
+        File.Exists(manifestTemporary)
+        || File.Exists(RotationBackupPath(_privateKeyPath))
+        || expectedPublicOutputPath is not null
+            && File.Exists(RotationBackupPath(expectedPublicOutputPath));
 
     private RotationManifest ReadRotationManifest(string manifestPath)
     {
@@ -1146,4 +1183,11 @@ public sealed class QaKeyStore
         bool PublicExisted,
         string PreviousPublicKey,
         string NewPublicKey);
+
+    private enum RecoveryOutcome
+    {
+        None,
+        Previous,
+        New
+    }
 }
