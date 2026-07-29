@@ -82,7 +82,7 @@ public sealed class WindowsLicenseClockCheckpointTests : IDisposable
         Assert.True(result.RollbackDetected);
         Assert.True(File.Exists(Path.Combine(_directory, "license-clock.bin")));
         Assert.True(File.Exists(Path.Combine(_directory, "license-clock.backup.bin")));
-        Assert.Empty(Directory.EnumerateFiles(_directory, "*.tmp"));
+        AssertNoTemporaryFilesEventually();
     }
 
     [Theory]
@@ -261,6 +261,18 @@ public sealed class WindowsLicenseClockCheckpointTests : IDisposable
         WindowsLicenseClockCheckpoint checkpoint = CreateCheckpoint();
         checkpoint.Initialize(Binding, LicenseTestData.Instant("2026-08-10T12:00:00Z"));
         return checkpoint;
+    }
+
+    private void AssertNoTemporaryFilesEventually()
+    {
+        bool cleared = SpinWait.SpinUntil(
+            () => !Directory.EnumerateFiles(_directory, "*.tmp").Any(),
+            TimeSpan.FromSeconds(1));
+        string[] temporaries = Directory.EnumerateFiles(_directory, "*.tmp").ToArray();
+
+        Assert.True(
+            cleared && temporaries.Length == 0,
+            $"Unexpected temporaries: {string.Join(", ", temporaries.Select(Path.GetFileName))}");
     }
 
     private static LicenseClockBinding DifferentBinding(int changedField) => changedField switch
