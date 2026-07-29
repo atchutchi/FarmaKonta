@@ -20,7 +20,9 @@ public sealed class WindowsDeviceLicenseIdentityStore : IDeviceLicenseIdentitySt
         Encoding.UTF8.GetBytes("Nofarma.Licensing.DeviceIdentity.v1");
 
     private readonly string _path;
+    private readonly string _mutexName;
     private readonly ILocalDataProtector _protector;
+    private readonly object _sync = new();
 
     public WindowsDeviceLicenseIdentityStore(
         string? baseDirectory = null,
@@ -30,10 +32,14 @@ public sealed class WindowsDeviceLicenseIdentityStore : IDeviceLicenseIdentitySt
         _path = Path.Combine(
             baseDirectory ?? DefaultSecretsDirectory(channel),
             FileName);
+        _mutexName = CreateMutexName(_path);
         _protector = protector ?? new WindowsCurrentUserDataProtector();
     }
 
-    public DeviceLicenseIdentity GetOrCreate(EntityId pharmacyId, EntityId deviceId)
+    public DeviceLicenseIdentity GetOrCreate(EntityId pharmacyId, EntityId deviceId) =>
+        WithInterprocessLock(() => GetOrCreateLocked(pharmacyId, deviceId));
+
+    private DeviceLicenseIdentity GetOrCreateLocked(EntityId pharmacyId, EntityId deviceId)
     {
         ProtectedFile.CleanupValidatedTemporaries(_path);
         if (File.Exists(_path))
@@ -57,6 +63,37 @@ public sealed class WindowsDeviceLicenseIdentityStore : IDeviceLicenseIdentitySt
         {
             CryptographicOperations.ZeroMemory(clear);
             CryptographicOperations.ZeroMemory(protectedPayload);
+        }
+    }
+
+    private T WithInterprocessLock<T>(Func<T> action)
+    {
+        lock (_sync)
+        {
+            using var mutex = new Mutex(initiallyOwned: false, _mutexName);
+            bool acquired;
+            try
+            {
+                acquired = mutex.WaitOne(TimeSpan.FromSeconds(30));
+            }
+            catch (AbandonedMutexException)
+            {
+                acquired = true;
+            }
+
+            if (!acquired)
+            {
+                throw new IOException("Timed out waiting for the device licence identity lock.");
+            }
+
+            try
+            {
+                return action();
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
         }
     }
 
@@ -166,6 +203,19 @@ public sealed class WindowsDeviceLicenseIdentityStore : IDeviceLicenseIdentitySt
         finally
         {
             CryptographicOperations.ZeroMemory(publicKey);
+        }
+    }
+
+    private static string CreateMutexName(string path)
+    {
+        byte[] normalizedPath = Encoding.UTF8.GetBytes(Path.GetFullPath(path).ToUpperInvariant());
+        try
+        {
+            return $"Local\\Nofarma-LicenceIdentity-{Convert.ToHexString(SHA256.HashData(normalizedPath))}";
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(normalizedPath);
         }
     }
 

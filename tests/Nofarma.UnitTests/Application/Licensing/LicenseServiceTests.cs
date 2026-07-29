@@ -24,20 +24,43 @@ public sealed class LicenseServiceTests
     }
 
     [Fact]
-    public async Task MissingLicenseDoesNotRequireContextOrCreateProtectedState()
+    public async Task MissingContextStopsBeforeReadingLicenseOrProtectedState()
     {
+        var store = new RecordingLicenseStore(existing: null);
         var identities = new RecordingDeviceLicenseIdentityStore();
         var checkpoint = new RecordingLicenseClockCheckpoint();
         var service = LicenseServiceTestFactory.Create(
-            new RecordingLicenseStore(existing: null),
+            store,
             new StubVerifier(LicenseVerification.Invalid("NOT_USED")),
             hasContext: false,
+            identities: identities,
+            checkpoint: checkpoint);
+
+        await Assert.ThrowsAsync<LicenseContextUnavailableException>(
+            () => service.GetStatusAsync(CancellationToken.None));
+
+        Assert.Equal(0, store.GetCalls);
+        Assert.Equal(0, identities.GetOrCreateCalls);
+        Assert.Equal(0, checkpoint.InitializeCalls);
+        Assert.Equal(0, checkpoint.CheckCalls);
+    }
+
+    [Fact]
+    public async Task MissingLicenseWithContextDoesNotCreateProtectedState()
+    {
+        var store = new RecordingLicenseStore(existing: null);
+        var identities = new RecordingDeviceLicenseIdentityStore();
+        var checkpoint = new RecordingLicenseClockCheckpoint();
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(LicenseVerification.Invalid("NOT_USED")),
             identities: identities,
             checkpoint: checkpoint);
 
         LicenseStatus status = await service.GetStatusAsync(CancellationToken.None);
 
         Assert.Equal(LicenseState.Missing, status.State);
+        Assert.Equal(1, store.GetCalls);
         Assert.Equal(0, identities.GetOrCreateCalls);
         Assert.Equal(0, checkpoint.InitializeCalls);
         Assert.Equal(0, checkpoint.CheckCalls);

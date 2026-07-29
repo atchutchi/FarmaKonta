@@ -16,13 +16,13 @@ public sealed class LicenseService(
 {
     public async Task<LicenseStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
+        LicenseContext context = await GetContextAsync(cancellationToken).ConfigureAwait(false);
         StoredLicense? stored = await store.GetAsync(cancellationToken).ConfigureAwait(false);
         if (stored is null)
         {
             return MissingStatus();
         }
 
-        LicenseContext context = await GetContextAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             DeviceLicenseIdentity device = deviceIdentityStore.GetOrCreate(

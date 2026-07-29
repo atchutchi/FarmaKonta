@@ -121,6 +121,42 @@ public sealed class WindowsDeviceLicenseIdentityStoreTests : IDisposable
         Assert.Equal(created, loaded);
     }
 
+    [Fact]
+    public async Task ConcurrentInstancesSerializeBeforeProtectingIdentity()
+    {
+        var shared = new FakeProtector("machine-a");
+        using var firstProtectEntered = new ManualResetEventSlim();
+        using var releaseFirstProtect = new ManualResetEventSlim();
+        using var secondProtectEntered = new ManualResetEventSlim();
+        var first = new WindowsDeviceLicenseIdentityStore(
+            _directory,
+            new BlockingProtectProtector(
+                shared,
+                firstProtectEntered,
+                releaseFirstProtect));
+        var second = new WindowsDeviceLicenseIdentityStore(
+            _directory,
+            new SignalingProtectProtector(shared, secondProtectEntered));
+
+        Task<Nofarma.Application.Licensing.DeviceLicenseIdentity> firstTask = Task.Run(() =>
+            first.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId));
+        bool firstEntered = firstProtectEntered.Wait(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        Task<Nofarma.Application.Licensing.DeviceLicenseIdentity> secondTask = Task.Run(() =>
+            second.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId));
+        bool secondEnteredBeforeRelease = secondProtectEntered.Wait(
+            TimeSpan.FromMilliseconds(500),
+            TestContext.Current.CancellationToken);
+        releaseFirstProtect.Set();
+        Nofarma.Application.Licensing.DeviceLicenseIdentity[] identities =
+            await Task.WhenAll(firstTask, secondTask);
+
+        Assert.True(firstEntered);
+        Assert.False(secondEnteredBeforeRelease);
+        Assert.Equal(identities[0], identities[1]);
+    }
+
     public void Dispose()
     {
         DeleteOwnedTemporaryDirectory(_directory, "nofarma-device-licence-");
@@ -191,4 +227,18 @@ internal sealed class CountingProtector(ILocalDataProtector inner) : ILocalDataP
         UnprotectCalls++;
         return inner.Unprotect(encrypted, entropy);
     }
+}
+
+internal sealed class SignalingProtectProtector(
+    ILocalDataProtector inner,
+    ManualResetEventSlim entered) : ILocalDataProtector
+{
+    public byte[] Protect(ReadOnlySpan<byte> clear, ReadOnlySpan<byte> entropy)
+    {
+        entered.Set();
+        return inner.Protect(clear, entropy);
+    }
+
+    public byte[] Unprotect(ReadOnlySpan<byte> encrypted, ReadOnlySpan<byte> entropy) =>
+        inner.Unprotect(encrypted, entropy);
 }
