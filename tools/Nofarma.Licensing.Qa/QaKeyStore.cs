@@ -238,12 +238,21 @@ public sealed class QaKeyStore
         }
     }
 
-    public ECDsa OpenSigningKey()
+    public void UseSigningKey(Action<ECDsa> operation)
     {
+        ArgumentNullException.ThrowIfNull(operation);
         using IDisposable keyStoreLock = _keyStoreLock.Acquire();
         _pathSecurity.EnsureSafePath(_privateKeyPath);
         _ = RecoverInterruptedProvisioning();
-        return OpenSigningKeyCore();
+        using ECDsa signingKey = OpenSigningKeyCore();
+        operation(signingKey);
+    }
+
+    public ReadOnlyMemory<byte> GetPublicKey()
+    {
+        byte[] publicKey = Array.Empty<byte>();
+        UseSigningKey(key => publicKey = key.ExportSubjectPublicKeyInfo());
+        return publicKey;
     }
 
     private ECDsa OpenSigningKeyCore()

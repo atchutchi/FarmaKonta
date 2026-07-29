@@ -38,6 +38,27 @@ public sealed class QaLicenseIssuer
 
     public ReadOnlyMemory<byte> PublicKey => _publicKey.ToArray();
 
+    public static void IssueToFile(
+        QaKeyStore keyStore,
+        ReadOnlyMemory<byte> requestDocument,
+        LicensePlan plan,
+        DateTimeOffset validFromUtc,
+        DateTimeOffset validUntilUtc,
+        string outputPath)
+    {
+        ArgumentNullException.ThrowIfNull(keyStore);
+        keyStore.UseSigningKey(signingKey =>
+        {
+            var issuer = new QaLicenseIssuer(signingKey);
+            issuer.IssueToFile(
+                requestDocument,
+                plan,
+                validFromUtc,
+                validUntilUtc,
+                outputPath);
+        });
+    }
+
     public byte[] Issue(
         ReadOnlyMemory<byte> requestDocument,
         LicensePlan plan,

@@ -411,9 +411,13 @@ public static class QaCli
         }
 
         byte[] request = ReadRequest(requestPath);
-        using ECDsa signingKey = QaKeyStore.CreateDefault().OpenSigningKey();
-        var issuer = new QaLicenseIssuer(signingKey);
-        issuer.IssueToFile(request, plan, validFromUtc, validUntilUtc, outputPath);
+        QaLicenseIssuer.IssueToFile(
+            QaKeyStore.CreateDefault(),
+            request,
+            plan,
+            validFromUtc,
+            validUntilUtc,
+            outputPath);
         output.WriteLine("QA licence issued.");
         return 0;
     }

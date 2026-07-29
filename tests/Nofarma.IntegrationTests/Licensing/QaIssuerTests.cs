@@ -370,8 +370,7 @@ public sealed class QaIssuerTests
         Assert.Equal("QA_ROTATION_FAILED", error.Code);
         Assert.Equal(originalProtectedKey, File.ReadAllBytes(privateKeyPath));
         Assert.Equal(originalPublicFile, File.ReadAllBytes(publicKeyPath));
-        using ECDsa activeKey = initialStore.OpenSigningKey();
-        Assert.Equal(originalPublicSpki, activeKey.ExportSubjectPublicKeyInfo());
+        Assert.Equal(originalPublicSpki, initialStore.GetPublicKey().ToArray());
     }
 
     [Fact]
@@ -434,10 +433,9 @@ public sealed class QaIssuerTests
         Assert.NotEqual(originalPublic, committedPublic);
         Assert.Equal(committedPrivate, File.ReadAllBytes(privateKeyPath));
         Assert.Equal(committedPublic, File.ReadAllBytes(publicKeyPath));
-        using ECDsa activeKey = recoveredStore.OpenSigningKey();
         Assert.Equal(
             Convert.FromBase64String(File.ReadAllText(publicKeyPath)),
-            activeKey.ExportSubjectPublicKeyInfo());
+            recoveredStore.GetPublicKey().ToArray());
         AssertNoRecoveryArtifacts(privateKeyPath, publicKeyPath);
     }
 
@@ -505,7 +503,7 @@ public sealed class QaIssuerTests
         Assert.True(rotationPaused.Wait(TimeSpan.FromSeconds(5), cancellationToken));
         Task second = Task.Run(() =>
         {
-            using ECDsa key = secondStore.OpenSigningKey();
+            _ = secondStore.GetPublicKey();
         }, cancellationToken);
         Assert.True(sharedLock.SecondAcquireAttempted.Wait(
             TimeSpan.FromSeconds(5),
@@ -523,6 +521,71 @@ public sealed class QaIssuerTests
     }
 
     [Fact]
+    public async Task RotationWaitsUntilSigningAndOutputComplete()
+    {
+        using var directory = new TemporaryDirectory("nofarma-qa-signing-lock");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        string licencePath = Path.Combine(directory.Path, "issued.nofarma-license");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        using var signingEntered = new ManualResetEventSlim();
+        using var finishSigning = new ManualResetEventSlim();
+        using var sharedLock = new BlockingKeyStoreLock();
+        var signingStore = new QaKeyStore(
+            privateKeyPath,
+            protector,
+            keyStoreLock: sharedLock);
+        var rotationStore = new QaKeyStore(
+            privateKeyPath,
+            protector,
+            keyStoreLock: sharedLock);
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+
+        Task signing = Task.Run(() => signingStore.UseSigningKey(key =>
+        {
+            signingEntered.Set();
+            if (!finishSigning.Wait(TimeSpan.FromSeconds(10)))
+            {
+                throw new TimeoutException("The test signing operation was not released.");
+            }
+
+            var issuer = new QaLicenseIssuer(
+                key,
+                new FixedTimeProvider(IssuedAt),
+                () => LicenseId);
+            issuer.IssueToFile(
+                ActivationRequest(LicenseBuildChannel.Qa),
+                LicensePlan.Monthly,
+                From,
+                Until,
+                licencePath);
+            Assert.False(sharedLock.SecondAcquireEntered.IsSet);
+        }), cancellationToken);
+        Assert.True(signingEntered.Wait(TimeSpan.FromSeconds(5), cancellationToken));
+        Task rotation = Task.Run(() => rotationStore.Provision(
+            publicKeyPath,
+            rotate: true,
+            new StringReader("ROTATE-QA-KEY")), cancellationToken);
+        Assert.True(sharedLock.SecondAcquireAttempted.Wait(
+            TimeSpan.FromSeconds(5),
+            cancellationToken));
+        Assert.False(sharedLock.SecondAcquireEntered.Wait(
+            TimeSpan.FromMilliseconds(250),
+            cancellationToken));
+
+        finishSigning.Set();
+        await Task.WhenAll(signing, rotation).WaitAsync(
+            TimeSpan.FromSeconds(10),
+            cancellationToken);
+
+        Assert.True(File.Exists(licencePath));
+        Assert.NotEmpty(File.ReadAllBytes(licencePath));
+        Assert.True(sharedLock.SecondAcquireEntered.IsSet);
+    }
+
+    [Fact]
     public void ReentrantPublicKeyStoreOperationFailsClosed()
     {
         using var directory = new TemporaryDirectory("nofarma-qa-key-reentrant");
@@ -535,7 +598,7 @@ public sealed class QaIssuerTests
         var store = new QaKeyStore(privateKeyPath, protector, reentrantFault);
         reentrantFault.Reenter = () =>
         {
-            using ECDsa key = store.OpenSigningKey();
+            _ = store.GetPublicKey();
         };
 
         QaIssuerException error = Assert.Throws<QaIssuerException>(() => store.Provision(
@@ -717,9 +780,8 @@ public sealed class QaIssuerTests
         publicKey.ImportSubjectPublicKeyInfo(publicSpki, out int bytesRead);
         Assert.Equal(publicSpki.Length, bytesRead);
         Assert.Equal(256, publicKey.KeySize);
-        using ECDsa privateKey = store.OpenSigningKey();
         Assert.Equal(
-            privateKey.ExportSubjectPublicKeyInfo(),
+            store.GetPublicKey().ToArray(),
             publicKey.ExportSubjectPublicKeyInfo());
     }
 
@@ -736,7 +798,7 @@ public sealed class QaIssuerTests
             parametersExporter: exporter);
         store.Provision(publicKeyPath, rotate: false, TextReader.Null);
 
-        using ECDsa signingKey = store.OpenSigningKey();
+        store.UseSigningKey(_ => { });
 
         Assert.NotNull(exporter.ExportedPrivateBytes);
         Assert.All(exporter.ExportedPrivateBytes, value => Assert.Equal(0, value));
