@@ -79,3 +79,29 @@ Foi criado um estado compacto do shell abaixo de 1450 píxeis. O botão de termi
 ### Limitação do inventário
 
 Os estados vazios e iniciais foram comparados directamente e o defeito responsivo encontrado foi corrigido. A comparação pixel a pixel dos estados preenchidos continua dependente de registos representativos fornecidos ou aprovados como dados descartáveis de QA.
+
+## QA visual da Licença offline
+
+Fonte visual: `docs/design/previews/04-reports-audit-users-settings.png`, com foco na barra lateral, cabeçalho, tipografia, cores, cartões e densidade do painel de Configurações.
+
+Implementação: `src/Nofarma.Desktop/Views/LicensePage.xaml` e integração em `src/Nofarma.Desktop/Views/AppShellPage.xaml`.
+
+Captura final: `.superpowers/sdd/2026-07-28-nofarma-signed-licensing/task-7-license-page.png`.
+
+Estado inspeccionado: administrador autenticado, computador sem licença e funcionamento offline.
+
+Viewport inspeccionado: janela física de 1366 por 768 com captura lógica de 1080 por 608 devido à escala do Windows e janela maximizada a 1536 por 816.
+
+### Comparação e correcções
+
+A fonte e a captura da implementação foram abertas na mesma comparação. A implementação conserva a barra lateral azul, o cabeçalho azul, o fundo claro, os cartões brancos, a tipografia Segoe UI e o estado seleccionado aprovado. A página usa dois cartões funcionais para o estado da licença e para a activação offline.
+
+Durante a primeira passagem foram encontrados quatro problemas P2: título provisório da janela, descrição de estado cortada, contraste insuficiente nos destinos inferiores da navegação e ausência de estado seleccionado persistente. Todos foram corrigidos e comparados novamente.
+
+Não ficaram diferenças P0, P1 ou P2. A ausência dos ícones da referência na barra lateral permanece como melhoria P3. Não impede o uso, a leitura, o foco ou a navegação.
+
+### Interacções e acessibilidade
+
+A página foi aberta ao vivo numa sessão autenticada. O estado seleccionado de Licença permaneceu visível. A descrição completa quebrou linha sem corte nos dois tamanhos. Os botões de exportação e importação expõem nomes de automação claros. Os selectores nativos de guardar e abrir foram abertos e cancelados sem bloquear a página. O pedido exportado não contém vendas, stock nem credenciais.
+
+final result: passed
