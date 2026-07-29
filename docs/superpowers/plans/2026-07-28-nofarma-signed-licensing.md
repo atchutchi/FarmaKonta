@@ -474,6 +474,8 @@ git commit -m "feat: protect licence device identity"
 - Consumes: `ILicenseStore`, `ILicenseContextStore`, `VerifiedLicense`.
 - Produces: uma licença corrente por instalação, histórico de sequência através de auditoria e actualização transaccional do estado da instalação.
 
+**Clarificação da fronteira de confiança:** `ILicenseStore.GetAsync` devolve apenas os bytes persistidos como dados não confiáveis. `LicenseService` verifica criptograficamente esses bytes em cada consulta antes de usar `Grant`, `Channel`, `KeyId` ou `Sequence`. As colunas SQLite são projecções para persistência, índices e diagnóstico e nunca podem activar ou prolongar uma licença. Alterar `ValidUntilUtc`, `Sequence`, `Plan`, `Channel` ou `KeyId` directamente na base não altera a avaliação. Um documento persistido inválido produz `LicenseState.Invalid` e bloqueia novas operações. Uma importação nova com assinatura válida pode substituir esse estado inválido para recuperação.
+
 - [ ] **Step 1: Escrever testes falhados de migração e rollback**
 
 ```csharp
