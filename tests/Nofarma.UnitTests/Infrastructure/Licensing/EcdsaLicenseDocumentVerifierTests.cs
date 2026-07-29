@@ -270,7 +270,7 @@ public sealed class EcdsaLicenseDocumentVerifierTests : IDisposable
         LicenseVerification result = Verify(envelope);
 
         Assert.False(result.IsValid);
-        Assert.Equal("LICENSE_CHANNEL_INVALID", result.Code);
+        Assert.Equal("CHANNEL_MISMATCH", result.Code);
     }
 
     [Fact]

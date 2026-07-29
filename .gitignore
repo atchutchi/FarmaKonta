@@ -9,6 +9,10 @@ secrets/
 *.snk
 *.key
 *.pem
+*.p8
+*.nofarma-license
+*.nofarma-request
+qa-signing-key.bin
 appsettings.Local.json
 appsettings.*.Local.json
 **/appsettings.Development.local.json

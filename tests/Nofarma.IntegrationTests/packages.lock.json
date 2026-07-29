@@ -572,6 +572,15 @@
           "System.Security.Cryptography.ProtectedData": "[10.0.10, )"
         }
       },
+      "nofarma.licensing.qa": {
+        "type": "Project",
+        "dependencies": {
+          "Nofarma.Application": "[1.0.0, )",
+          "Nofarma.Domain": "[1.0.0, )",
+          "Nofarma.Infrastructure": "[1.0.0, )",
+          "System.Security.Cryptography.ProtectedData": "[10.0.10, )"
+        }
+      },
       "DocumentFormat.OpenXml": {
         "type": "CentralTransitive",
         "requested": "[3.5.1, )",

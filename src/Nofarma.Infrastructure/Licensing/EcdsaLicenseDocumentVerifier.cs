@@ -56,10 +56,14 @@ public sealed class EcdsaLicenseDocumentVerifier(TrustedLicenseKeyRegistry keys)
             return LicenseVerification.Invalid("DOCUMENT_VERSION_UNSUPPORTED");
         }
 
-        if (envelope.Channel is not (LicenseBuildChannel.Qa or LicenseBuildChannel.Commercial)
-            || envelope.Channel != _keys.BuildChannel)
+        if (envelope.Channel is not (LicenseBuildChannel.Qa or LicenseBuildChannel.Commercial))
         {
             return LicenseVerification.Invalid("LICENSE_CHANNEL_INVALID");
+        }
+
+        if (envelope.Channel != _keys.BuildChannel)
+        {
+            return LicenseVerification.Invalid("CHANNEL_MISMATCH");
         }
 
         if (envelope.SignatureAlgorithm != EcdsaP256Sha256P1363Algorithm)
