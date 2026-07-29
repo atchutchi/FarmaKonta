@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Nofarma.Application.Idempotency;
 using Nofarma.Application.Purchasing;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Common;
@@ -104,12 +105,135 @@ public sealed class PurchaseReceiptTests
 
         Assert.Equal(first, repeated);
         await using var verification = new NofarmaDbContext(fixture.Options);
-        Assert.Single(await verification.GoodsReceipts.ToArrayAsync(cancellationToken));
+        Assert.Equal(
+            command.RequestFingerprint,
+            Assert.Single(await verification.GoodsReceipts.ToArrayAsync(cancellationToken))
+                .RequestFingerprint);
         Assert.Single(await verification.StockMovements.ToArrayAsync(cancellationToken));
         Assert.Equal(
             48,
             await verification.StockLots.Select(record => record.AvailableQuantityBase)
                 .SingleAsync(cancellationToken));
+    }
+
+    [Fact]
+    public async Task ReusedReceiptKeyWithDifferentPayloadIsRejected()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
+        var store = new SqlitePurchaseStore(fixture.Options);
+        PurchaseActorContext context = Assert.IsType<PurchaseActorContext>(
+            await store.GetContextAsync(fixture.UserId, cancellationToken));
+        PurchaseDetails purchase = await CreatePurchaseAsync(store, fixture, context);
+        EntityId lineId = Assert.Single(purchase.Lines).Id;
+        ConfirmPurchaseReceiptCommand first = ReceiptCommand(
+            fixture, purchase.Id, lineId, 4, "receipt-conflict");
+        await store.ConfirmReceiptAsync(
+            context,
+            first,
+            Audit(fixture, first.ReceiptId, "purchase.receipt_confirmed", "GoodsReceipt"),
+            cancellationToken);
+        ConfirmPurchaseReceiptCommand conflicting = ReceiptCommand(
+            fixture, purchase.Id, lineId, 5, "receipt-conflict");
+
+        await Assert.ThrowsAsync<IdempotencyConflictException>(() => store.ConfirmReceiptAsync(
+            context,
+            conflicting,
+            Audit(fixture, conflicting.ReceiptId, "purchase.receipt_confirmed", "GoodsReceipt"),
+            cancellationToken));
+
+        await using var verification = new NofarmaDbContext(fixture.Options);
+        Assert.Single(await verification.GoodsReceipts.ToArrayAsync(cancellationToken));
+        Assert.Single(await verification.AuditEvents
+            .Where(record => record.Action == "purchase.receipt_confirmed")
+            .ToArrayAsync(cancellationToken));
+    }
+
+    [Fact]
+    public async Task LegacyReceiptWithoutFingerprintConflictsBeforeAndInsideTransaction()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
+        var store = new SqlitePurchaseStore(fixture.Options);
+        PurchaseActorContext context = Assert.IsType<PurchaseActorContext>(
+            await store.GetContextAsync(fixture.UserId, cancellationToken));
+        PurchaseDetails purchase = await CreatePurchaseAsync(store, fixture, context);
+        EntityId lineId = Assert.Single(purchase.Lines).Id;
+        ConfirmPurchaseReceiptCommand command = ReceiptCommand(
+            fixture, purchase.Id, lineId, 4, "receipt-legacy");
+        await store.ConfirmReceiptAsync(
+            context,
+            command,
+            Audit(fixture, command.ReceiptId, "purchase.receipt_confirmed", "GoodsReceipt"),
+            cancellationToken);
+        await using (var mutation = new NofarmaDbContext(fixture.Options))
+        {
+            await mutation.GoodsReceipts.ExecuteUpdateAsync(
+                setters => setters.SetProperty(record => record.RequestFingerprint, (string?)null),
+                cancellationToken);
+        }
+
+        await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
+            store.GetReceiptResultAsync(
+                fixture.PharmacyId,
+                command.IdempotencyKey,
+                command.RequestFingerprint,
+                cancellationToken));
+        ConfirmPurchaseReceiptCommand retry = ReceiptCommand(
+            fixture, purchase.Id, lineId, 4, "receipt-legacy");
+        await Assert.ThrowsAsync<IdempotencyConflictException>(() => store.ConfirmReceiptAsync(
+            context,
+            retry,
+            Audit(fixture, retry.ReceiptId, "purchase.receipt_confirmed", "GoodsReceipt"),
+            cancellationToken));
+    }
+
+    [Fact]
+    public async Task ConcurrentReceiptIntentsWithSameKeyPersistOnlyOne()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
+        var store = new SqlitePurchaseStore(fixture.Options);
+        PurchaseActorContext context = Assert.IsType<PurchaseActorContext>(
+            await store.GetContextAsync(fixture.UserId, cancellationToken));
+        PurchaseDetails purchase = await CreatePurchaseAsync(store, fixture, context);
+        EntityId lineId = Assert.Single(purchase.Lines).Id;
+        ConfirmPurchaseReceiptCommand firstIntent = ReceiptCommand(
+            fixture, purchase.Id, lineId, 4, "receipt-concurrent-conflict");
+        ConfirmPurchaseReceiptCommand secondIntent = ReceiptCommand(
+            fixture, purchase.Id, lineId, 5, "receipt-concurrent-conflict");
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Task<Exception?> first = ConfirmAsync(firstIntent);
+        Task<Exception?> second = ConfirmAsync(secondIntent);
+        start.SetResult();
+        Exception?[] outcomes = await Task.WhenAll(first, second);
+
+        Assert.Single(outcomes, error => error is null);
+        Assert.Single(outcomes, error => error is IdempotencyConflictException);
+        await using var verification = new NofarmaDbContext(fixture.Options);
+        Assert.Single(await verification.GoodsReceipts.ToArrayAsync(cancellationToken));
+        Assert.Single(await verification.AuditEvents
+            .Where(record => record.Action == "purchase.receipt_confirmed")
+            .ToArrayAsync(cancellationToken));
+
+        async Task<Exception?> ConfirmAsync(ConfirmPurchaseReceiptCommand intent)
+        {
+            await start.Task;
+            try
+            {
+                await store.ConfirmReceiptAsync(
+                    context,
+                    intent,
+                    Audit(fixture, intent.ReceiptId, "purchase.receipt_confirmed", "GoodsReceipt"),
+                    cancellationToken);
+                return null;
+            }
+            catch (Exception exception)
+            {
+                return exception;
+            }
+        }
     }
 
     [Fact]
@@ -367,7 +491,11 @@ public sealed class PurchaseReceiptTests
                 1_000,
                 "LOT-001",
                 ExpiryDate.ForMonth(2027, 12),
-                $"{idempotencyKey}:line:1")]);
+                $"{idempotencyKey}:line:1")],
+            TestFingerprint(packageQuantity));
+
+    private static string TestFingerprint(long value) =>
+        new("0123456789ABCDEF"[(int)(Math.Abs(value) % 16)], 64);
 
     private static AuditEvent Audit(
         StockTestDatabase fixture,

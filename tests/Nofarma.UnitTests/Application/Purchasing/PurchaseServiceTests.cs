@@ -262,6 +262,7 @@ public sealed class PurchaseServiceTests
         public Task<PurchaseReceiptDetails?> GetReceiptResultAsync(
             EntityId pharmacyId,
             string idempotencyKey,
+            string requestFingerprint,
             CancellationToken cancellationToken) => Task.FromResult(ExistingReceipt);
 
         public Task<PurchaseReceiptDetails> ConfirmReceiptAsync(

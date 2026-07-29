@@ -452,11 +452,18 @@ public sealed class LicensePersistenceTests
                     installationId,
                     await upgraded.Installations.Select(record => record.Id)
                         .SingleAsync(TestContext.Current.CancellationToken));
+                string[] appliedMigrations = (await upgraded.Database.GetAppliedMigrationsAsync(
+                    TestContext.Current.CancellationToken)).ToArray();
                 Assert.Contains(
-                    "AddSignedLicensing",
-                    (await upgraded.Database.GetAppliedMigrationsAsync(
-                        TestContext.Current.CancellationToken)).Last(),
-                    StringComparison.Ordinal);
+                    appliedMigrations,
+                    migration => migration.Contains(
+                        "AddSignedLicensing",
+                        StringComparison.Ordinal));
+                Assert.Contains(
+                    appliedMigrations,
+                    migration => migration.Contains(
+                        "AddOperationRequestFingerprints",
+                        StringComparison.Ordinal));
             }
         }
         finally

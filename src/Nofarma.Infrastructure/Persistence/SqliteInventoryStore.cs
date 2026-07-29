@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Idempotency;
 using Nofarma.Application.Inventory;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Catalog;
@@ -58,6 +59,7 @@ public sealed class SqliteInventoryStore(
     public async Task<StockConfirmationResult?> GetIdempotentResultAsync(
         EntityId pharmacyId,
         string idempotencyKey,
+        string requestFingerprint,
         CancellationToken cancellationToken)
     {
         await using var context = new NofarmaDbContext(options);
@@ -66,7 +68,13 @@ public sealed class SqliteInventoryStore(
                 record => record.PharmacyId == pharmacyId.Value &&
                     record.IdempotencyKey == idempotencyKey.Trim(),
                 cancellationToken).ConfigureAwait(false);
-        return existing is null ? null : MapResult(existing);
+        if (existing is null)
+        {
+            return null;
+        }
+
+        EnsureMatchingFingerprint(existing.RequestFingerprint, requestFingerprint);
+        return MapResult(existing);
     }
 
     public async Task<StockConfirmationResult> ConfirmAsync(
@@ -90,6 +98,9 @@ public sealed class SqliteInventoryStore(
                 cancellationToken).ConfigureAwait(false);
         if (existing is not null)
         {
+            EnsureMatchingFingerprint(
+                existing.RequestFingerprint,
+                confirmation.RequestFingerprint);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return MapResult(existing);
         }
@@ -127,7 +138,9 @@ public sealed class SqliteInventoryStore(
 
         product.HasMovements = true;
         product.UpdatedAtUtc = operation.OccurredUtc.Value;
-        dbContext.StockMovements.Add(MapMovement(movement));
+        dbContext.StockMovements.Add(MapMovement(
+            movement,
+            confirmation.RequestFingerprint));
         dbContext.AuditEvents.Add(InventoryPersistenceMapper.MapAudit(auditEvent));
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -160,6 +173,9 @@ public sealed class SqliteInventoryStore(
                 cancellationToken).ConfigureAwait(false);
         if (repeated is not null)
         {
+            EnsureMatchingFingerprint(
+                repeated.RequestFingerprint,
+                command.RequestFingerprint);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return MapResult(repeated);
         }
@@ -209,7 +225,9 @@ public sealed class SqliteInventoryStore(
             lot,
             compensation,
             cancellationToken).ConfigureAwait(false);
-        dbContext.StockMovements.Add(MapMovement(compensation));
+        dbContext.StockMovements.Add(MapMovement(
+            compensation,
+            command.RequestFingerprint));
         dbContext.AuditEvents.Add(InventoryPersistenceMapper.MapAudit(auditEvent));
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -558,7 +576,9 @@ public sealed class SqliteInventoryStore(
         }
     }
 
-    private static StockMovementRecord MapMovement(StockMovement movement) => new()
+    private static StockMovementRecord MapMovement(
+        StockMovement movement,
+        string requestFingerprint) => new()
     {
         Id = movement.Id.Value,
         PharmacyId = movement.PharmacyId.Value,
@@ -571,6 +591,7 @@ public sealed class SqliteInventoryStore(
         UserId = movement.UserId.Value,
         OccurredAtUtc = movement.OccurredUtc.Value,
         IdempotencyKey = movement.IdempotencyKey,
+        RequestFingerprint = requestFingerprint,
         CompensatesMovementId = movement.CompensatesMovementId?.Value,
         ResultingLotBalance = movement.ResultingLotBalance
     };
@@ -592,4 +613,14 @@ public sealed class SqliteInventoryStore(
         movement.ResultingLotBalance,
         (StockMovementType)movement.Type,
         UtcInstant.From(movement.OccurredAtUtc));
+
+    private static void EnsureMatchingFingerprint(
+        string? persisted,
+        string expected)
+    {
+        if (!OperationRequestFingerprint.MatchesPersisted(persisted, expected))
+        {
+            throw new IdempotencyConflictException();
+        }
+    }
 }

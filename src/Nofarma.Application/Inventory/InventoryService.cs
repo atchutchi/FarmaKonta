@@ -1,4 +1,5 @@
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Idempotency;
 using Nofarma.Application.Licensing;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
@@ -24,9 +25,14 @@ public sealed class InventoryService(
         authorization.EnsureAllowed(actor, EntryCapability(request.Type));
         InventoryActorContext context = await GetContextAsync(actor, cancellationToken)
             .ConfigureAwait(false);
+        string requestFingerprint = OperationRequestFingerprint.ForStockEntry(
+            context,
+            actor.UserId,
+            request);
         StockConfirmationResult? repeated = await store.GetIdempotentResultAsync(
             context.PharmacyId,
             request.IdempotencyKey,
+            requestFingerprint,
             cancellationToken).ConfigureAwait(false);
         if (repeated is not null)
         {
@@ -44,7 +50,7 @@ public sealed class InventoryService(
         UtcInstant occurredUtc = clock.GetCurrentInstant();
         string lotNumber = string.IsNullOrWhiteSpace(request.LotNumber)
             ? "SEM-LOTE"
-            : request.LotNumber.Trim();
+            : request.LotNumber.Trim().ToUpperInvariant();
         var operation = new StockOperation(
             movementId,
             context.PharmacyId,
@@ -52,11 +58,11 @@ public sealed class InventoryService(
             lotId,
             request.QuantityBase,
             request.Type,
-            request.Reason,
+            NormalizeOptional(request.Reason),
             request.SourceDocumentId,
             actor.UserId,
             occurredUtc,
-            request.IdempotencyKey);
+            request.IdempotencyKey.Trim());
         var confirmation = new InventoryConfirmation(
             operation,
             new StockLotDefinition(
@@ -64,7 +70,8 @@ public sealed class InventoryService(
                 lotNumber,
                 request.Expiry,
                 request.SupplierId,
-                request.OriginCostXof));
+                request.OriginCostXof),
+            requestFingerprint);
         AuditEvent audit = CreateAudit(
             context,
             actor.UserId,
@@ -88,9 +95,14 @@ public sealed class InventoryService(
         ValidateAdjustment(request);
         InventoryActorContext context = await GetContextAsync(actor, cancellationToken)
             .ConfigureAwait(false);
+        string requestFingerprint = OperationRequestFingerprint.ForStockAdjustment(
+            context,
+            actor.UserId,
+            request);
         StockConfirmationResult? repeated = await store.GetIdempotentResultAsync(
             context.PharmacyId,
             request.IdempotencyKey,
+            requestFingerprint,
             cancellationToken).ConfigureAwait(false);
         if (repeated is not null)
         {
@@ -116,12 +128,12 @@ public sealed class InventoryService(
             request.LotId,
             request.QuantityBase,
             request.Type,
-            request.Reason,
+            NormalizeOptional(request.Reason),
             null,
             actor.UserId,
             occurredUtc,
-            request.IdempotencyKey);
-        var confirmation = new InventoryConfirmation(operation, null);
+            request.IdempotencyKey.Trim());
+        var confirmation = new InventoryConfirmation(operation, null, requestFingerprint);
         AuditEvent audit = CreateAudit(
             context,
             actor.UserId,
@@ -152,9 +164,14 @@ public sealed class InventoryService(
 
         InventoryActorContext context = await GetContextAsync(actor, cancellationToken)
             .ConfigureAwait(false);
+        string requestFingerprint = OperationRequestFingerprint.ForStockCompensation(
+            context,
+            actor.UserId,
+            request);
         StockConfirmationResult? repeated = await store.GetIdempotentResultAsync(
             context.PharmacyId,
             request.IdempotencyKey,
+            requestFingerprint,
             cancellationToken).ConfigureAwait(false);
         if (repeated is not null)
         {
@@ -170,7 +187,8 @@ public sealed class InventoryService(
             actor.UserId,
             request.Reason.Trim(),
             request.IdempotencyKey.Trim(),
-            occurredUtc);
+            occurredUtc,
+            requestFingerprint);
         AuditEvent audit = CreateAudit(
             context,
             actor.UserId,
@@ -299,6 +317,9 @@ public sealed class InventoryService(
         StockMovementType.PositiveAdjustment => Capability.AdjustStock,
         _ => Capability.ManageStock
     };
+
+    private static string? NormalizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static AuditEvent CreateAudit(
         InventoryActorContext context,

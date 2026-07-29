@@ -13,6 +13,7 @@ public sealed class StockMovementRecord
     public Guid UserId { get; set; }
     public DateTimeOffset OccurredAtUtc { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
+    public string? RequestFingerprint { get; set; }
     public Guid? CompensatesMovementId { get; set; }
     public long ResultingLotBalance { get; set; }
 }

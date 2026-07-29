@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Idempotency;
 using Nofarma.Application.Purchasing;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Common;
@@ -276,6 +277,7 @@ public sealed class SqlitePurchaseStore(
     public async Task<PurchaseReceiptDetails?> GetReceiptResultAsync(
         EntityId pharmacyId,
         string idempotencyKey,
+        string requestFingerprint,
         CancellationToken cancellationToken)
     {
         await using var dbContext = new NofarmaDbContext(options);
@@ -284,9 +286,13 @@ public sealed class SqlitePurchaseStore(
                 record => record.PharmacyId == pharmacyId.Value &&
                     record.IdempotencyKey == idempotencyKey.Trim(),
                 cancellationToken).ConfigureAwait(false);
-        return receipt is null
-            ? null
-            : await MapReceiptAsync(dbContext, receipt, cancellationToken).ConfigureAwait(false);
+        if (receipt is null)
+        {
+            return null;
+        }
+
+        EnsureMatchingFingerprint(receipt.RequestFingerprint, requestFingerprint);
+        return await MapReceiptAsync(dbContext, receipt, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PurchaseReceiptDetails> ConfirmReceiptAsync(
@@ -309,6 +315,9 @@ public sealed class SqlitePurchaseStore(
                 cancellationToken).ConfigureAwait(false);
         if (repeated is not null)
         {
+            EnsureMatchingFingerprint(
+                repeated.RequestFingerprint,
+                command.RequestFingerprint);
             PurchaseReceiptDetails result = await MapReceiptAsync(
                 dbContext,
                 repeated,
@@ -354,7 +363,8 @@ public sealed class SqlitePurchaseStore(
             Notes = NormalizeOptional(command.Notes),
             ReceivedByUserId = command.ActorUserId.Value,
             ReceivedAtUtc = command.OccurredUtc.Value,
-            IdempotencyKey = command.IdempotencyKey
+            IdempotencyKey = command.IdempotencyKey,
+            RequestFingerprint = command.RequestFingerprint
         });
 
         foreach (ConfirmPurchaseReceiptLineCommand received in command.Lines)
@@ -766,6 +776,16 @@ public sealed class SqlitePurchaseStore(
         CompensatesMovementId = movement.CompensatesMovementId?.Value,
         ResultingLotBalance = movement.ResultingLotBalance
     };
+
+    private static void EnsureMatchingFingerprint(
+        string? persisted,
+        string expected)
+    {
+        if (!OperationRequestFingerprint.MatchesPersisted(persisted, expected))
+        {
+            throw new IdempotencyConflictException();
+        }
+    }
 
     private static void ValidateAudit(
         PurchaseActorContext context,

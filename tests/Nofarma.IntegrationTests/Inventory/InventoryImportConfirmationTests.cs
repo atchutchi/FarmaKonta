@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Nofarma.Application.Idempotency;
 using Nofarma.Application.Inventory.Import;
 using Nofarma.Domain.Catalog;
 using Nofarma.Domain.Common;
@@ -69,6 +70,82 @@ public sealed class InventoryImportConfirmationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(30, await verification.StockLots.Where(lot => lot.Number == "VC-01")
             .Select(lot => lot.AvailableQuantityBase).SingleAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ConfirmedImportWithDifferentKeyIsRejected()
+    {
+        await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
+        var store = new SqliteInventoryImportStore(fixture.Options);
+        var context = new InventoryImportStoreContext(fixture.PharmacyId, fixture.DeviceId);
+        var row = new InventoryImportDraftRow(
+            EntityId.New(), 2, GeneralRow(), InventoryImportMatchType.NewProduct,
+            null, InventoryImportRowStatus.Valid, []);
+        InventoryImportDraft draft = await store.SaveDraftAsync(
+            context, fixture.UserId, "inventory.xlsx", new string('A', 64), null,
+            [row], DateTimeOffset.UtcNow, TestContext.Current.CancellationToken);
+        await store.ConfirmAsync(
+            context, fixture.UserId, draft.Id, "opening-first", DateTimeOffset.UtcNow,
+            TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<IdempotencyConflictException>(() => store.ConfirmAsync(
+            context, fixture.UserId, draft.Id, "opening-other", DateTimeOffset.UtcNow,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ConcurrentConfirmationWithDifferentKeysPersistsOnlyOneIntent()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
+        var store = new SqliteInventoryImportStore(fixture.Options);
+        var context = new InventoryImportStoreContext(fixture.PharmacyId, fixture.DeviceId);
+        var row = new InventoryImportDraftRow(
+            EntityId.New(), 2, GeneralRow(), InventoryImportMatchType.NewProduct,
+            null, InventoryImportRowStatus.Valid, []);
+        InventoryImportDraft draft = await store.SaveDraftAsync(
+            context, fixture.UserId, "inventory.xlsx", new string('A', 64), null,
+            [row], DateTimeOffset.UtcNow, cancellationToken);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Task<(InventoryImportConfirmationResult? Result, Exception? Error)> first =
+            ConfirmAsync("opening-concurrent-a");
+        Task<(InventoryImportConfirmationResult? Result, Exception? Error)> second =
+            ConfirmAsync("opening-concurrent-b");
+        start.SetResult();
+        (InventoryImportConfirmationResult? Result, Exception? Error)[] outcomes =
+            await Task.WhenAll(first, second);
+
+        Assert.Single(outcomes, outcome => outcome.Result is not null);
+        Assert.Single(outcomes, outcome => outcome.Error is IdempotencyConflictException);
+        await using var verification = new NofarmaDbContext(fixture.Options);
+        Assert.Single(await verification.AuditEvents
+            .Where(record => record.Action == "stock.opening_inventory_import_confirmed")
+            .ToArrayAsync(cancellationToken));
+        Assert.Single(await verification.StockMovements
+            .Where(record => record.SourceDocumentId == draft.Id.Value)
+            .ToArrayAsync(cancellationToken));
+
+        async Task<(InventoryImportConfirmationResult? Result, Exception? Error)> ConfirmAsync(
+            string key)
+        {
+            await start.Task;
+            try
+            {
+                InventoryImportConfirmationResult result = await store.ConfirmAsync(
+                    context,
+                    fixture.UserId,
+                    draft.Id,
+                    key,
+                    DateTimeOffset.UtcNow,
+                    cancellationToken);
+                return (result, null);
+            }
+            catch (Exception exception)
+            {
+                return (null, exception);
+            }
+        }
     }
 
     private static InventoryImportNormalizedRow GeneralRow() => new(

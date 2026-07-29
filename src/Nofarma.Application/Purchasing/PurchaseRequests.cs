@@ -69,4 +69,5 @@ public sealed record ConfirmPurchaseReceiptCommand(
     string? Notes,
     string IdempotencyKey,
     UtcInstant OccurredUtc,
-    IReadOnlyList<ConfirmPurchaseReceiptLineCommand> Lines);
+    IReadOnlyList<ConfirmPurchaseReceiptLineCommand> Lines,
+    string RequestFingerprint);

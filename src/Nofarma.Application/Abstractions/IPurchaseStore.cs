@@ -46,6 +46,7 @@ public interface IPurchaseStore
     Task<PurchaseReceiptDetails?> GetReceiptResultAsync(
         EntityId pharmacyId,
         string idempotencyKey,
+        string requestFingerprint,
         CancellationToken cancellationToken);
 
     Task<PurchaseReceiptDetails> ConfirmReceiptAsync(

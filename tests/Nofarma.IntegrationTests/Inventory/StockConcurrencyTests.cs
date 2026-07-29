@@ -59,7 +59,8 @@ public sealed class StockConcurrencyTests
                     fixture.UserId,
                     UtcInstant.From(new DateTimeOffset(2026, 7, 27, 12, 1, 0, TimeSpan.Zero)),
                     key),
-                null);
+                null,
+                new string(key.EndsWith('a') ? 'A' : 'B', 64));
             return store.ConfirmAsync(
                 context,
                 confirmation,

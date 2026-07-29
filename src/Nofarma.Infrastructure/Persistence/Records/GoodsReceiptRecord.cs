@@ -11,4 +11,5 @@ public sealed class GoodsReceiptRecord
     public Guid ReceivedByUserId { get; set; }
     public DateTimeOffset ReceivedAtUtc { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
+    public string? RequestFingerprint { get; set; }
 }

@@ -48,6 +48,7 @@ public sealed class GoodsReceiptConfiguration : IEntityTypeConfiguration<GoodsRe
         builder.Property(record => record.DocumentNumber).HasMaxLength(120);
         builder.Property(record => record.Notes).HasMaxLength(2000);
         builder.Property(record => record.IdempotencyKey).HasMaxLength(160).IsRequired();
+        builder.Property(record => record.RequestFingerprint).HasMaxLength(64).IsFixedLength();
         builder.HasIndex(record => new { record.PharmacyId, record.IdempotencyKey }).IsUnique();
         builder.HasOne<PharmacyRecord>().WithMany().HasForeignKey(record => record.PharmacyId)
             .OnDelete(DeleteBehavior.Restrict);

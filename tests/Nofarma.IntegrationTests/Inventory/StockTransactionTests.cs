@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Nofarma.Application.Idempotency;
 using Nofarma.Application.Inventory;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Catalog;
@@ -41,12 +42,126 @@ public sealed class StockTransactionTests
 
         Assert.Equal(first, repeated);
         await using var verification = new NofarmaDbContext(fixture.Options);
-        Assert.Single(await verification.StockMovements.ToArrayAsync(cancellationToken));
+        Assert.Equal(
+            confirmation.RequestFingerprint,
+            Assert.Single(await verification.StockMovements.ToArrayAsync(cancellationToken))
+                .RequestFingerprint);
         Assert.Equal(
             10,
             await verification.StockLots.Select(record => record.AvailableQuantityBase)
                 .SingleAsync(cancellationToken));
         Assert.Single(await verification.AuditEvents.ToArrayAsync(cancellationToken));
+    }
+
+    [Fact]
+    public async Task ReusedIdempotencyKeyWithDifferentStockIntentIsRejected()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
+        var store = new SqliteInventoryStore(fixture.Options);
+        InventoryActorContext context = Assert.IsType<InventoryActorContext>(
+            await store.GetContextAsync(fixture.UserId, cancellationToken));
+        InventoryConfirmation first = fixture.Entry("entry-conflict", 10);
+        await store.ConfirmAsync(context, first, fixture.Audit(first.Operation.MovementId), cancellationToken);
+        InventoryConfirmation conflicting = first with
+        {
+            RequestFingerprint = new string('B', 64),
+            Operation = first.Operation with
+            {
+                MovementId = EntityId.New(),
+                QuantityBase = 11
+            }
+        };
+
+        await Assert.ThrowsAsync<IdempotencyConflictException>(() => store.ConfirmAsync(
+            context,
+            conflicting,
+            fixture.Audit(conflicting.Operation.MovementId),
+            cancellationToken));
+
+        await using var verification = new NofarmaDbContext(fixture.Options);
+        Assert.Single(await verification.StockMovements.ToArrayAsync(cancellationToken));
+        Assert.Single(await verification.AuditEvents.ToArrayAsync(cancellationToken));
+    }
+
+    [Fact]
+    public async Task LegacyMovementWithoutFingerprintConflictsBeforeAndInsideTransaction()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
+        var store = new SqliteInventoryStore(fixture.Options);
+        InventoryActorContext context = Assert.IsType<InventoryActorContext>(
+            await store.GetContextAsync(fixture.UserId, cancellationToken));
+        InventoryConfirmation confirmation = fixture.Entry("entry-legacy", 10);
+        await store.ConfirmAsync(
+            context,
+            confirmation,
+            fixture.Audit(confirmation.Operation.MovementId),
+            cancellationToken);
+        await using (var mutation = new NofarmaDbContext(fixture.Options))
+        {
+            await mutation.StockMovements.ExecuteUpdateAsync(
+                setters => setters.SetProperty(record => record.RequestFingerprint, (string?)null),
+                cancellationToken);
+        }
+
+        await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
+            store.GetIdempotentResultAsync(
+                fixture.PharmacyId,
+                confirmation.Operation.IdempotencyKey,
+                confirmation.RequestFingerprint,
+                cancellationToken));
+        InventoryConfirmation retry = confirmation with
+        {
+            Operation = confirmation.Operation with { MovementId = EntityId.New() }
+        };
+        await Assert.ThrowsAsync<IdempotencyConflictException>(() => store.ConfirmAsync(
+            context,
+            retry,
+            fixture.Audit(retry.Operation.MovementId),
+            cancellationToken));
+    }
+
+    [Fact]
+    public async Task ConcurrentStockIntentsWithSameKeyPersistOnlyOne()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using StockTestDatabase fixture = await StockTestDatabase.CreateAsync();
+        var store = new SqliteInventoryStore(fixture.Options);
+        InventoryActorContext context = Assert.IsType<InventoryActorContext>(
+            await store.GetContextAsync(fixture.UserId, cancellationToken));
+        InventoryConfirmation firstIntent = fixture.Entry("entry-concurrent-conflict", 10);
+        InventoryConfirmation secondIntent = fixture.Entry("entry-concurrent-conflict", 11);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Task<Exception?> first = ConfirmAsync(firstIntent);
+        Task<Exception?> second = ConfirmAsync(secondIntent);
+        start.SetResult();
+        Exception?[] outcomes = await Task.WhenAll(first, second);
+
+        Assert.Single(outcomes, error => error is null);
+        Assert.Single(outcomes, error => error is IdempotencyConflictException);
+        await using var verification = new NofarmaDbContext(fixture.Options);
+        Assert.Single(await verification.StockMovements.ToArrayAsync(cancellationToken));
+        Assert.Single(await verification.AuditEvents.ToArrayAsync(cancellationToken));
+
+        async Task<Exception?> ConfirmAsync(InventoryConfirmation intent)
+        {
+            await start.Task;
+            try
+            {
+                await store.ConfirmAsync(
+                    context,
+                    intent,
+                    fixture.Audit(intent.Operation.MovementId),
+                    cancellationToken);
+                return null;
+            }
+            catch (Exception exception)
+            {
+                return exception;
+            }
+        }
     }
 
     [Fact]
@@ -108,7 +223,8 @@ public sealed class StockTransactionTests
                 fixture.UserId,
                 "Entrada no produto errado",
                 "compensation-once",
-                UtcInstant.From(new DateTimeOffset(2026, 7, 27, 12, 5, 0, TimeSpan.Zero))),
+                UtcInstant.From(new DateTimeOffset(2026, 7, 27, 12, 5, 0, TimeSpan.Zero)),
+                new string('C', 64)),
             fixture.Audit(compensationId),
             cancellationToken);
         ProductStockDetails stock = Assert.IsType<ProductStockDetails>(
@@ -220,6 +336,7 @@ internal sealed class StockTestDatabase : IAsyncDisposable
         EntityId supplierId)
     {
         _directory = directory;
+        DatabasePath = Path.Combine(directory, "stock.db");
         ConnectionString = connectionString;
         Options = options;
         PharmacyId = pharmacyId;
@@ -231,6 +348,8 @@ internal sealed class StockTestDatabase : IAsyncDisposable
     }
 
     public string ConnectionString { get; }
+
+    public string DatabasePath { get; }
 
     public DbContextOptions<NofarmaDbContext> Options { get; }
 
@@ -392,7 +511,8 @@ internal sealed class StockTestDatabase : IAsyncDisposable
                 "LOT-01",
                 ExpiryDate.ForMonth(2027, 12),
                 null,
-                50));
+                50),
+            TestFingerprint(quantity));
     }
 
     public AuditEvent Audit(EntityId movementId) => new(
@@ -407,6 +527,9 @@ internal sealed class StockTestDatabase : IAsyncDisposable
         AuditOutcome.Success,
         null,
         "{}");
+
+    private static string TestFingerprint(long value) =>
+        new("0123456789ABCDEF"[(int)(Math.Abs(value) % 16)], 64);
 
     public ValueTask DisposeAsync()
     {

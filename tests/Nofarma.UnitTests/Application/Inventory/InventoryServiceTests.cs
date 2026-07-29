@@ -280,6 +280,7 @@ public sealed class InventoryServiceTests
         public Task<StockConfirmationResult?> GetIdempotentResultAsync(
             EntityId pharmacyId,
             string idempotencyKey,
+            string requestFingerprint,
             CancellationToken cancellationToken) => Task.FromResult(IdempotentResult);
 
         public Task<StockConfirmationResult> ConfirmAsync(

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Idempotency;
 using Nofarma.Application.Inventory.Import;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Catalog;
@@ -144,12 +145,19 @@ public sealed class SqliteInventoryImportStore(DbContextOptions<NofarmaDbContext
             .SingleOrDefaultAsync(
                 item => item.Id == importId.Value &&
                     item.PharmacyId == pharmacyId.Value &&
-                    item.Status == (int)InventoryImportStatus.Confirmed &&
-                    item.ConfirmationIdempotencyKey == idempotencyKey.Trim(),
+                    item.Status == (int)InventoryImportStatus.Confirmed,
                 cancellationToken).ConfigureAwait(false);
         if (import is null)
         {
             return null;
+        }
+
+        if (!string.Equals(
+            import.ConfirmationIdempotencyKey,
+            idempotencyKey.Trim(),
+            StringComparison.Ordinal))
+        {
+            throw new IdempotencyConflictException();
         }
 
         int movements = await db.StockMovements.AsNoTracking()
@@ -176,6 +184,14 @@ public sealed class SqliteInventoryImportStore(DbContextOptions<NofarmaDbContext
             ?? throw new InventoryValidationException("A importação indicada não existe.");
         if (import.Status == (int)InventoryImportStatus.Confirmed)
         {
+            if (!string.Equals(
+                import.ConfirmationIdempotencyKey,
+                idempotencyKey,
+                StringComparison.Ordinal))
+            {
+                throw new IdempotencyConflictException();
+            }
+
             int existing = await db.StockMovements.CountAsync(item => item.SourceDocumentId == import.Id, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new InventoryImportConfirmationResult(importId, 0, existing, true);

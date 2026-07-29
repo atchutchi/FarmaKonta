@@ -21,7 +21,8 @@ public sealed record StockLotDefinition(
 
 public sealed record InventoryConfirmation(
     StockOperation Operation,
-    StockLotDefinition? Lot);
+    StockLotDefinition? Lot,
+    string RequestFingerprint);
 
 public sealed record StockConfirmationResult(
     EntityId MovementId,

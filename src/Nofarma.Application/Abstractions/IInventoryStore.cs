@@ -19,6 +19,7 @@ public interface IInventoryStore
     Task<StockConfirmationResult?> GetIdempotentResultAsync(
         EntityId pharmacyId,
         string idempotencyKey,
+        string requestFingerprint,
         CancellationToken cancellationToken);
 
     Task<StockConfirmationResult> ConfirmAsync(

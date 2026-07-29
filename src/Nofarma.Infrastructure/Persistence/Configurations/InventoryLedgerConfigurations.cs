@@ -12,6 +12,7 @@ public sealed class StockMovementConfiguration : IEntityTypeConfiguration<StockM
         builder.HasKey(record => record.Id);
         builder.Property(record => record.Reason).HasMaxLength(1000);
         builder.Property(record => record.IdempotencyKey).HasMaxLength(160).IsRequired();
+        builder.Property(record => record.RequestFingerprint).HasMaxLength(64).IsFixedLength();
         builder.HasIndex(record => new { record.PharmacyId, record.IdempotencyKey })
             .IsUnique()
             .HasDatabaseName("IX_StockMovements_PharmacyId_IdempotencyKey");

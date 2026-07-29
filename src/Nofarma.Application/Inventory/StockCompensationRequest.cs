@@ -13,4 +13,5 @@ public sealed record StockCompensationCommand(
     EntityId UserId,
     string Reason,
     string IdempotencyKey,
-    UtcInstant OccurredUtc);
+    UtcInstant OccurredUtc,
+    string RequestFingerprint);

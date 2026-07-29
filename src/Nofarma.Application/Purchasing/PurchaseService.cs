@@ -1,4 +1,5 @@
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Idempotency;
 using Nofarma.Application.Licensing;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
@@ -140,9 +141,15 @@ public sealed class PurchaseService(
         PurchaseActorContext context = await GetContextAsync(actor, cancellationToken)
             .ConfigureAwait(false);
         string normalizedKey = request.IdempotencyKey.Trim();
+        string requestFingerprint = OperationRequestFingerprint.ForPurchaseReceipt(
+            context,
+            purchaseId,
+            actor.UserId,
+            request);
         PurchaseReceiptDetails? repeated = await store.GetReceiptResultAsync(
             context.PharmacyId,
             normalizedKey,
+            requestFingerprint,
             cancellationToken).ConfigureAwait(false);
         if (repeated is not null)
         {
@@ -166,7 +173,9 @@ public sealed class PurchaseService(
                 EntityId.New(),
                 line.PackageQuantity,
                 line.UnitCostXof,
-                line.LotNumber,
+                string.IsNullOrWhiteSpace(line.LotNumber)
+                    ? "SEM-LOTE"
+                    : line.LotNumber.Trim().ToUpperInvariant(),
                 line.Expiry,
                 $"{request.IdempotencyKey.Trim()}:line:{index + 1}"))
             .ToArray();
@@ -176,10 +185,11 @@ public sealed class PurchaseService(
             actor.UserId,
             request.DocumentNumber!.Trim(),
             request.DocumentDate,
-            request.Notes,
+            string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             normalizedKey,
             occurredUtc,
-            lines);
+            lines,
+            requestFingerprint);
         AuditEvent audit = CreateAudit(
             context,
             actor.UserId,

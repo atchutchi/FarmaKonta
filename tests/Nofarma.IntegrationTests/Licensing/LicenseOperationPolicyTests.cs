@@ -3,12 +3,20 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Identity.Authentication;
+using Nofarma.Application.Inventory;
+using Nofarma.Application.Inventory.Import;
 using Nofarma.Application.Licensing;
+using Nofarma.Application.Purchasing;
+using Nofarma.Application.Sales;
+using Nofarma.Domain.Identity;
+using Nofarma.Domain.Inventory;
 using Nofarma.Domain.Common;
 using Nofarma.Domain.Licensing;
 using Nofarma.Infrastructure.Composition;
 using Nofarma.Infrastructure.Licensing;
 using Nofarma.Infrastructure.Persistence;
+using Nofarma.IntegrationTests.Inventory;
 
 namespace Nofarma.IntegrationTests.Licensing;
 
@@ -28,21 +36,57 @@ public sealed class LicenseOperationPolicyTests : IAsyncLifetime
     [Fact]
     public async Task NormalCompositionResolvesAndFailsClosedWithoutAConfiguredInstallation()
     {
-        string databasePath = Path.Combine(_directory, "nofarma.db");
+        await using StockTestDatabase database = await StockTestDatabase.CreateAsync();
         using ServiceProvider provider = new ServiceCollection()
-            .AddNofarmaLocalIdentity(databasePath, Path.Combine(_directory, "secrets"))
-            .BuildServiceProvider(validateScopes: true);
-        await using (var database = new NofarmaDbContext(
-            provider.GetRequiredService<DbContextOptions<NofarmaDbContext>>()))
-        {
-            await database.Database.MigrateAsync(TestContext.Current.CancellationToken);
-        }
+            .AddNofarmaLocalIdentity(database.DatabasePath, Path.Combine(_directory, "secrets"))
+            .BuildServiceProvider(new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
 
+        LicenseService licenseService = provider.GetRequiredService<LicenseService>();
+        ILicenseStatusProvider statusProvider = provider.GetRequiredService<ILicenseStatusProvider>();
         ILicensedOperationPolicy policy = provider.GetRequiredService<ILicensedOperationPolicy>();
+        InventoryService inventory = provider.GetRequiredService<InventoryService>();
+        _ = provider.GetRequiredService<InventoryImportService>();
+        _ = provider.GetRequiredService<PurchaseService>();
+        _ = provider.GetRequiredService<CashShiftService>();
         var result = await policy.CanCreateAsync(TestContext.Current.CancellationToken);
 
+        UtcInstant now = provider.GetRequiredService<IUtcClock>().GetCurrentInstant();
+        var actor = new LocalSession(
+            EntityId.New(),
+            database.UserId,
+            UserRole.Administrator,
+            now,
+            now,
+            null);
+        StockOperationBlockedException blocked = await Assert.ThrowsAsync<StockOperationBlockedException>(
+            () => inventory.ConfirmEntryAsync(
+                actor,
+                new StockEntryRequest(
+                    database.ProductId,
+                    1,
+                    StockMovementType.QuickEntry,
+                    "COMPOSITION-LOT",
+                    ExpiryDate.ForMonth(2027, 12),
+                    database.SupplierId,
+                    50,
+                    "Teste de composição",
+                    null,
+                    "composition-missing"),
+                TestContext.Current.CancellationToken));
+
+        Assert.Same(licenseService, statusProvider);
         Assert.False(result.IsAllowed);
-        Assert.Equal("INSTALLATION_REQUIRED", result.Code);
+        Assert.Equal("LICENSE_MISSING", result.Code);
+        Assert.Equal("LICENSE_MISSING", blocked.Code);
+        await using var verification = new NofarmaDbContext(database.Options);
+        Assert.Empty(await verification.StockMovements.ToArrayAsync(
+            TestContext.Current.CancellationToken));
+        Assert.Empty(await verification.AuditEvents.ToArrayAsync(
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
