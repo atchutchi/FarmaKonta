@@ -37,7 +37,9 @@
     Name="ValidateCommercialLicenseKey"
     BeforeTargets="PrepareForBuild"
     Condition="'$(NofarmaLicenseChannel)' == 'Commercial'">
-    <Delete Files="$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64" />
+    <ItemGroup>
+      <_NofarmaCommercialKeySnapshot Include="$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.$([System.Guid]::NewGuid().ToString('N')).validated.spki.b64" />
+    </ItemGroup>
     <Error
       Code="NFLC001"
       Condition="!Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64')"
@@ -48,13 +50,13 @@
       Text="QA public key is not provisioned for channel separation validation" />
     <Exec
       Condition="Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64') and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64')"
-      Command="dotnet run --project &quot;$(MSBuildProjectDirectory)\..\..\tools\Nofarma.Licensing.Qa\Nofarma.Licensing.Qa.csproj&quot; --configuration Release --no-launch-profile -- validate-commercial-key --qa-public &quot;$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64&quot; --commercial-public &quot;$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64&quot; --validated-output &quot;$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64&quot;" />
+      Command="dotnet run --project &quot;$(MSBuildProjectDirectory)\..\..\tools\Nofarma.Licensing.Qa\Nofarma.Licensing.Qa.csproj&quot; --configuration Release --no-launch-profile -- validate-commercial-key --qa-public &quot;$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64&quot; --commercial-public &quot;$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64&quot; --validated-output &quot;@(_NofarmaCommercialKeySnapshot)&quot;" />
     <Error
       Code="NFLC005"
-      Condition="Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64') and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64') and !Exists('$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64')"
+      Condition="Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64') and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64') and !Exists('@(_NofarmaCommercialKeySnapshot)')"
       Text="validated Commercial public key snapshot was not produced" />
-    <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64')">
-      <EmbeddedResource Include="$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64">
+    <ItemGroup Condition="Exists('@(_NofarmaCommercialKeySnapshot)')">
+      <EmbeddedResource Include="@(_NofarmaCommercialKeySnapshot)">
         <LogicalName>Nofarma.Desktop.LicensingPublicKey</LogicalName>
       </EmbeddedResource>
     </ItemGroup>

@@ -42,6 +42,9 @@ public static class QaPublicKeyValidator
     private const int MaximumPublicKeyFileBytes = 8 * 1024;
     private const string NistP256Oid = "1.2.840.10045.3.1.7";
 
+    internal static IQaPublicKeyDecoder DefaultDecoder =>
+        DefaultPublicKeyDecoder.Instance;
+
     public static LicenseChannelKeyValidation ValidateCommercial(
         string qaPublicKeyPath,
         string commercialPublicKeyPath)
@@ -163,34 +166,43 @@ public static class QaPublicKeyValidator
         }
 
         Directory.CreateDirectory(directory);
-        string temporaryPath = Path.Combine(
-            directory,
-            $".{Path.GetFileName(fullOutputPath)}.{Guid.NewGuid():N}.tmp");
         byte[] encoded = System.Text.Encoding.ASCII.GetBytes(
             string.Concat(
                 Convert.ToBase64String(subjectPublicKey),
                 Environment.NewLine));
+        bool created = false;
         try
         {
-            using (var stream = new FileStream(
-                       temporaryPath,
+            using (new FileStream(
+                       fullOutputPath,
                        FileMode.CreateNew,
                        FileAccess.Write,
                        FileShare.None))
             {
-                stream.Write(encoded);
-                stream.Flush(flushToDisk: true);
             }
 
-            File.Move(temporaryPath, fullOutputPath, overwrite: true);
+            created = true;
+            QaFileSecurity.ProtectForCurrentUser(fullOutputPath);
+            using var stream = new FileStream(
+                fullOutputPath,
+                FileMode.Open,
+                FileAccess.Write,
+                FileShare.None);
+            stream.Write(encoded);
+            stream.Flush(flushToDisk: true);
+        }
+        catch
+        {
+            if (created && File.Exists(fullOutputPath))
+            {
+                File.Delete(fullOutputPath);
+            }
+
+            throw;
         }
         finally
         {
             CryptographicOperations.ZeroMemory(encoded);
-            if (File.Exists(temporaryPath))
-            {
-                File.Delete(temporaryPath);
-            }
         }
     }
 

@@ -297,6 +297,28 @@ public sealed class QaIssuerTests
     }
 
     [Fact]
+    public void ProvisionWithoutRotateContainsPlatformFailureAsOutputConflict()
+    {
+        using var directory = new TemporaryDirectory("nofarma-qa-public-platform");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        var failingStore = new QaKeyStore(
+            privateKeyPath,
+            protector,
+            publicKeyDecoder: new AlwaysFailingPublicKeyDecoder(
+                new PlatformNotSupportedException("platform-detail")));
+
+        QaIssuerException error = Assert.Throws<QaIssuerException>(() =>
+            failingStore.Provision(publicKeyPath, rotate: false, TextReader.Null));
+
+        Assert.Equal("QA_PUBLIC_OUTPUT_CONFLICT", error.Code);
+        Assert.DoesNotContain("platform-detail", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RotationRequiresTheExactTerminalConfirmation()
     {
         using var directory = new TemporaryDirectory("nofarma-qa-rotation");
@@ -353,6 +375,73 @@ public sealed class QaIssuerTests
     }
 
     [Fact]
+    public void InterruptedAfterPrivateCommitRestoresThePreviousPairOnNextUse()
+    {
+        using var directory = new TemporaryDirectory("nofarma-qa-crash-private");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        byte[] originalPrivate = File.ReadAllBytes(privateKeyPath);
+        byte[] originalPublic = File.ReadAllBytes(publicKeyPath);
+        var interruptedStore = new QaKeyStore(
+            privateKeyPath,
+            protector,
+            new InterruptAfterPrivateCommit());
+
+        Assert.Throws<SimulatedProcessTermination>(() => interruptedStore.Provision(
+            publicKeyPath,
+            rotate: true,
+            new StringReader("ROTATE-QA-KEY")));
+        Assert.True(File.Exists(string.Concat(privateKeyPath, ".rotation.json")));
+
+        var recoveredStore = new QaKeyStore(privateKeyPath, protector);
+        recoveredStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+
+        Assert.Equal(originalPrivate, File.ReadAllBytes(privateKeyPath));
+        Assert.Equal(originalPublic, File.ReadAllBytes(publicKeyPath));
+        AssertNoRecoveryArtifacts(privateKeyPath, publicKeyPath);
+    }
+
+    [Fact]
+    public void InterruptedAfterPublicCommitFinalizesTheNewPairOnNextUse()
+    {
+        using var directory = new TemporaryDirectory("nofarma-qa-crash-public");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        byte[] originalPrivate = File.ReadAllBytes(privateKeyPath);
+        byte[] originalPublic = File.ReadAllBytes(publicKeyPath);
+        var interruptedStore = new QaKeyStore(
+            privateKeyPath,
+            protector,
+            new InterruptAfterPublicCommit());
+
+        Assert.Throws<SimulatedProcessTermination>(() => interruptedStore.Provision(
+            publicKeyPath,
+            rotate: true,
+            new StringReader("ROTATE-QA-KEY")));
+        byte[] committedPrivate = File.ReadAllBytes(privateKeyPath);
+        byte[] committedPublic = File.ReadAllBytes(publicKeyPath);
+
+        var recoveredStore = new QaKeyStore(privateKeyPath, protector);
+        recoveredStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+
+        Assert.NotEqual(originalPrivate, committedPrivate);
+        Assert.NotEqual(originalPublic, committedPublic);
+        Assert.Equal(committedPrivate, File.ReadAllBytes(privateKeyPath));
+        Assert.Equal(committedPublic, File.ReadAllBytes(publicKeyPath));
+        using ECDsa activeKey = recoveredStore.OpenSigningKey();
+        Assert.Equal(
+            Convert.FromBase64String(File.ReadAllText(publicKeyPath)),
+            activeKey.ExportSubjectPublicKeyInfo());
+        AssertNoRecoveryArtifacts(privateKeyPath, publicKeyPath);
+    }
+
+    [Fact]
     public void RecoveryFailurePreservesTheOwnedPrivateBackup()
     {
         using var directory = new TemporaryDirectory("nofarma-qa-recovery-backup");
@@ -374,9 +463,10 @@ public sealed class QaIssuerTests
                 new StringReader("ROTATE-QA-KEY")));
 
         Assert.Equal("QA_ROTATION_RECOVERY_REQUIRED", error.Code);
-        string backupPath = Assert.Single(Directory.EnumerateFiles(
-            directory.Path,
-            ".qa-signing-key.bin.*.bak"));
+        string backupPath = string.Concat(privateKeyPath, ".rotation.bak");
+        Assert.True(
+            File.Exists(backupPath),
+            string.Join(", ", Directory.EnumerateFiles(directory.Path)));
         Assert.Equal(originalProtectedKey, File.ReadAllBytes(backupPath));
     }
 
@@ -412,6 +502,30 @@ public sealed class QaIssuerTests
         AssertProtectedPrivateKeyAcl();
     }
 
+    [Fact]
+    public void RotationPreservesBackupWhenCleanupPathCannotBeValidated()
+    {
+        using var directory = new TemporaryDirectory("nofarma-qa-cleanup-path");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        var guardedStore = new QaKeyStore(
+            privateKeyPath,
+            protector,
+            pathSecurity: new RejectBackupCleanupPathSecurity());
+
+        QaIssuerException error = Assert.Throws<QaIssuerException>(() =>
+            guardedStore.Provision(
+                publicKeyPath,
+                rotate: true,
+                new StringReader("ROTATE-QA-KEY")));
+
+        Assert.Equal("QA_ROTATION_RECOVERY_REQUIRED", error.Code);
+        Assert.NotEmpty(Directory.EnumerateFiles(directory.Path, "*.bak"));
+    }
+
     [SupportedOSPlatform("windows")]
     private static void AssertProtectedPrivateKeyAcl()
     {
@@ -439,6 +553,24 @@ public sealed class QaIssuerTests
             rules.Cast<FileSystemAccessRule>(),
             rule => rule.AccessControlType == AccessControlType.Allow
                 && broadPrincipals.Contains(rule.IdentityReference.Value));
+    }
+
+    [Fact]
+    public void TemporaryDirectoryCleanupRethrowsPersistentIoFailure()
+    {
+        int attempts = 0;
+
+        IOException error = Assert.Throws<IOException>(() =>
+            TemporaryDirectory.DeleteWithRetry(
+                () =>
+                {
+                    attempts++;
+                    throw new IOException("Persistent cleanup failure.");
+                },
+                _ => { }));
+
+        Assert.Equal(20, attempts);
+        Assert.Equal("Persistent cleanup failure.", error.Message);
     }
 
     [Fact]
@@ -582,6 +714,62 @@ public sealed class QaIssuerTests
         Assert.True(QaPublicKeyValidator.ValidateCommercial(
             qaPath,
             validatedPath).IsValid);
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.True(new FileInfo(validatedPath)
+                .GetAccessControl()
+                .AreAccessRulesProtected);
+        }
+    }
+
+    [Fact]
+    public void ValidatedCommercialCopyPreservesAnExistingVictim()
+    {
+        using var directory = new TemporaryDirectory("nofarma-commercial-victim");
+        using ECDsa qaKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using ECDsa commercialKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        string qaPath = Path.Combine(directory.Path, "qa.spki.b64");
+        string commercialPath = Path.Combine(directory.Path, "commercial.spki.b64");
+        string victimPath = Path.Combine(directory.Path, "victim.bin");
+        File.WriteAllText(qaPath, Convert.ToBase64String(
+            qaKey.ExportSubjectPublicKeyInfo()));
+        File.WriteAllText(commercialPath, Convert.ToBase64String(
+            commercialKey.ExportSubjectPublicKeyInfo()));
+        byte[] victim = Encoding.UTF8.GetBytes("preserve-existing-victim");
+        File.WriteAllBytes(victimPath, victim);
+
+        LicenseChannelKeyValidation result =
+            QaPublicKeyValidator.ValidateCommercialToFile(
+                qaPath,
+                commercialPath,
+                victimPath);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(victim, File.ReadAllBytes(victimPath));
+    }
+
+    [Fact]
+    public void ValidatedCommercialCopyCannotReplaceTheProtectedPrivateKey()
+    {
+        using var directory = new TemporaryDirectory("nofarma-commercial-private");
+        using ECDsa commercialKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string qaPath = Path.Combine(directory.Path, "qa.spki.b64");
+        string commercialPath = Path.Combine(directory.Path, "commercial.spki.b64");
+        var store = new QaKeyStore(privateKeyPath, new TestProtector());
+        store.Provision(qaPath, rotate: false, TextReader.Null);
+        byte[] protectedPrivateKey = File.ReadAllBytes(privateKeyPath);
+        File.WriteAllText(commercialPath, Convert.ToBase64String(
+            commercialKey.ExportSubjectPublicKeyInfo()));
+
+        LicenseChannelKeyValidation result =
+            QaPublicKeyValidator.ValidateCommercialToFile(
+                qaPath,
+                commercialPath,
+                privateKeyPath);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(protectedPrivateKey, File.ReadAllBytes(privateKeyPath));
     }
 
     [Fact]
@@ -636,7 +824,7 @@ public sealed class QaIssuerTests
             "build",
             "keys",
             "nofarma-qa-public.spki.b64");
-        string[] trackedPaths = TrackedLicensingPaths(repoRoot);
+        string[] trackedPaths = TrackedPaths(repoRoot);
         string[] forbiddenNameFragments =
         [
             "private",
@@ -666,7 +854,7 @@ public sealed class QaIssuerTests
         Assert.Equal(256, publicKey.KeySize);
     }
 
-    private static string[] TrackedLicensingPaths(string repoRoot)
+    private static string[] TrackedPaths(string repoRoot)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -679,11 +867,6 @@ public sealed class QaIssuerTests
         };
         startInfo.ArgumentList.Add("ls-files");
         startInfo.ArgumentList.Add("-z");
-        startInfo.ArgumentList.Add("--");
-        startInfo.ArgumentList.Add("build");
-        startInfo.ArgumentList.Add("src");
-        startInfo.ArgumentList.Add("tests");
-        startInfo.ArgumentList.Add("tools");
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not enumerate tracked files.");
         string output = process.StandardOutput.ReadToEnd();
@@ -877,6 +1060,15 @@ public sealed class QaIssuerTests
             ? value
             : value[^maximumCharacters..];
 
+    private static void AssertNoRecoveryArtifacts(
+        string privateKeyPath,
+        string publicKeyPath)
+    {
+        Assert.False(File.Exists(string.Concat(privateKeyPath, ".rotation.json")));
+        Assert.False(File.Exists(string.Concat(privateKeyPath, ".rotation.bak")));
+        Assert.False(File.Exists(string.Concat(publicKeyPath, ".rotation.bak")));
+    }
+
     private static string FindRepoRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -973,6 +1165,42 @@ public sealed class QaIssuerTests
             throw new IOException("Injected rollback failure.");
     }
 
+    private sealed class InterruptAfterPrivateCommit
+        : IQaKeyProvisioningFaultInjector
+    {
+        public bool SimulatesProcessTermination => true;
+
+        public void BeforePublicCommit()
+        {
+        }
+
+        public void BeforeRollback()
+        {
+        }
+
+        public void AfterPrivateCommit() =>
+            throw new SimulatedProcessTermination();
+    }
+
+    private sealed class InterruptAfterPublicCommit
+        : IQaKeyProvisioningFaultInjector
+    {
+        public bool SimulatesProcessTermination => true;
+
+        public void BeforePublicCommit()
+        {
+        }
+
+        public void BeforeRollback()
+        {
+        }
+
+        public void AfterPublicCommit() =>
+            throw new SimulatedProcessTermination();
+    }
+
+    private sealed class SimulatedProcessTermination : Exception;
+
     private sealed class RecordingPrivateParametersExporter
         : IQaPrivateKeyParametersExporter
     {
@@ -999,6 +1227,26 @@ public sealed class QaIssuerTests
                 throw new QaIssuerException(
                     "QA_PATH_REPARSE_POINT",
                     "Injected unsafe path.");
+            }
+        }
+
+        public void ProtectPrivateFile(string path)
+        {
+        }
+    }
+
+    private sealed class RejectBackupCleanupPathSecurity : IQaPathSecurity
+    {
+        private int _backupChecks;
+
+        public void EnsureSafePath(string path)
+        {
+            if (path.EndsWith(".bak", StringComparison.OrdinalIgnoreCase)
+                && ++_backupChecks > 2)
+            {
+                throw new QaIssuerException(
+                    "QA_PATH_REPARSE_POINT",
+                    "Injected unsafe cleanup path.");
             }
         }
 
@@ -1041,8 +1289,11 @@ public sealed class QaIssuerTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
+        private readonly string _prefix;
+
         public TemporaryDirectory(string prefix)
         {
+            _prefix = prefix;
             Path = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
                 $"{prefix}-{Guid.NewGuid():N}");
@@ -1053,9 +1304,50 @@ public sealed class QaIssuerTests
 
         public void Dispose()
         {
-            if (Directory.Exists(Path))
+            string fullDirectory = System.IO.Path.GetFullPath(Path);
+            string fullTemp = System.IO.Path.GetFullPath(
+                    System.IO.Path.GetTempPath())
+                .TrimEnd(
+                    System.IO.Path.DirectorySeparatorChar,
+                    System.IO.Path.AltDirectorySeparatorChar)
+                + System.IO.Path.DirectorySeparatorChar;
+            if (!fullDirectory.StartsWith(
+                    fullTemp,
+                    StringComparison.OrdinalIgnoreCase)
+                || !System.IO.Path.GetFileName(fullDirectory).StartsWith(
+                    _prefix,
+                    StringComparison.Ordinal))
             {
-                Directory.Delete(Path, recursive: true);
+                throw new InvalidOperationException(
+                    "The QA issuer test directory is not safe to remove.");
+            }
+
+            DeleteWithRetry(() =>
+            {
+                if (Directory.Exists(fullDirectory))
+                {
+                    Directory.Delete(fullDirectory, recursive: true);
+                }
+            });
+        }
+
+        internal static void DeleteWithRetry(
+            Action delete,
+            Action<TimeSpan>? delay = null)
+        {
+            ArgumentNullException.ThrowIfNull(delete);
+            delay ??= Thread.Sleep;
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    delete();
+                    return;
+                }
+                catch (IOException) when (attempt < 19)
+                {
+                    delay(TimeSpan.FromMilliseconds(50));
+                }
             }
         }
     }

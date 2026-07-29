@@ -1,8 +1,7 @@
 using System.Runtime.Versioning;
-using System.Security.AccessControl;
 using System.Security.Cryptography;
-using System.Security.Principal;
 using System.Text;
+using System.Text.Json;
 using Nofarma.Infrastructure.Licensing;
 
 namespace Nofarma.Licensing.Qa;
@@ -13,9 +12,19 @@ public sealed record QaKeyProvisioningResult(
 
 public interface IQaKeyProvisioningFaultInjector
 {
+    bool SimulatesProcessTermination => false;
+
     void BeforePublicCommit();
 
     void BeforeRollback();
+
+    void AfterPrivateCommit()
+    {
+    }
+
+    void AfterPublicCommit()
+    {
+    }
 }
 
 public interface IQaPrivateKeyParametersExporter
@@ -44,13 +53,15 @@ public sealed class QaKeyStore
     private readonly IQaKeyProvisioningFaultInjector _faultInjector;
     private readonly IQaPrivateKeyParametersExporter _parametersExporter;
     private readonly IQaPathSecurity _pathSecurity;
+    private readonly IQaPublicKeyDecoder _publicKeyDecoder;
 
     public QaKeyStore(
         string privateKeyPath,
         ILocalDataProtector protector,
         IQaKeyProvisioningFaultInjector? faultInjector = null,
         IQaPrivateKeyParametersExporter? parametersExporter = null,
-        IQaPathSecurity? pathSecurity = null)
+        IQaPathSecurity? pathSecurity = null,
+        IQaPublicKeyDecoder? publicKeyDecoder = null)
     {
         if (string.IsNullOrWhiteSpace(privateKeyPath))
         {
@@ -65,6 +76,7 @@ public sealed class QaKeyStore
         _parametersExporter = parametersExporter ??
             DefaultPrivateKeyParametersExporter.Instance;
         _pathSecurity = pathSecurity ?? DefaultPathSecurity.Instance;
+        _publicKeyDecoder = publicKeyDecoder ?? QaPublicKeyValidator.DefaultDecoder;
     }
 
     public static string DefaultPrivateKeyPath => Path.Combine(
@@ -89,6 +101,7 @@ public sealed class QaKeyStore
             nameof(publicOutputPath));
         _pathSecurity.EnsureSafePath(_privateKeyPath);
         _pathSecurity.EnsureSafePath(fullPublicOutputPath);
+        RecoverInterruptedProvisioning(fullPublicOutputPath);
         if (File.Exists(_privateKeyPath))
         {
             _pathSecurity.ProtectPrivateFile(_privateKeyPath);
@@ -122,7 +135,8 @@ public sealed class QaKeyStore
                         exception is IOException
                             or UnauthorizedAccessException
                             or FormatException
-                            or CryptographicException)
+                            or CryptographicException
+                            or PlatformNotSupportedException)
                     {
                         throw PublicOutputConflict(exception);
                     }
@@ -133,6 +147,12 @@ public sealed class QaKeyStore
                         {
                             throw PublicOutputConflict();
                         }
+                    }
+                    catch (Exception exception) when (
+                        exception is CryptographicException
+                            or PlatformNotSupportedException)
+                    {
+                        throw PublicOutputConflict(exception);
                     }
                     finally
                     {
@@ -209,6 +229,12 @@ public sealed class QaKeyStore
     public ECDsa OpenSigningKey()
     {
         _pathSecurity.EnsureSafePath(_privateKeyPath);
+        RecoverInterruptedProvisioning();
+        return OpenSigningKeyCore();
+    }
+
+    private ECDsa OpenSigningKeyCore()
+    {
         if (File.Exists(_privateKeyPath))
         {
             _pathSecurity.ProtectPrivateFile(_privateKeyPath);
@@ -282,78 +308,83 @@ public sealed class QaKeyStore
         string publicDirectory = EnsureDirectory(publicOutputPath);
         string privateTemporary = TemporaryPath(privateDirectory, _privateKeyPath);
         string publicTemporary = TemporaryPath(publicDirectory, publicOutputPath);
-        string privateBackup = BackupPath(privateDirectory, _privateKeyPath);
-        string publicBackup = BackupPath(publicDirectory, publicOutputPath);
+        string manifestPath = RotationManifestPath();
+        string privateBackup = RotationBackupPath(_privateKeyPath);
+        string publicBackup = RotationBackupPath(publicOutputPath);
         bool publicExisted = File.Exists(publicOutputPath);
-        bool privateCommitted = false;
-        bool publicCommitted = false;
-        bool preserveBackups = false;
         byte[] encodedPublic = Encoding.ASCII.GetBytes(
             string.Concat(Convert.ToBase64String(publicKey), Environment.NewLine));
+        var manifest = new RotationManifest(
+            1,
+            _privateKeyPath,
+            publicOutputPath,
+            privateExisted,
+            publicExisted,
+            Convert.ToBase64String(previousPublicKey),
+            Convert.ToBase64String(publicKey));
         try
         {
             WriteNewPrivateFile(privateTemporary, protectedKey);
             WriteNewFile(publicTemporary, encodedPublic);
+            WriteRotationManifest(manifestPath, manifest);
+            if (privateExisted)
+            {
+                CopyRecoveryFile(_privateKeyPath, privateBackup, privateFile: true);
+            }
+
+            if (publicExisted)
+            {
+                CopyRecoveryFile(publicOutputPath, publicBackup, privateFile: false);
+            }
 
             _pathSecurity.EnsureSafePath(_privateKeyPath);
             _pathSecurity.EnsureSafePath(publicOutputPath);
 
             if (privateExisted)
             {
-                File.Replace(privateTemporary, _privateKeyPath, privateBackup);
+                File.Replace(
+                    privateTemporary,
+                    _privateKeyPath,
+                    destinationBackupFileName: null);
             }
             else
             {
                 File.Move(privateTemporary, _privateKeyPath, overwrite: false);
             }
 
-            privateCommitted = true;
             _pathSecurity.ProtectPrivateFile(_privateKeyPath);
-            if (File.Exists(privateBackup))
-            {
-                _pathSecurity.ProtectPrivateFile(privateBackup);
-            }
-
+            _faultInjector.AfterPrivateCommit();
             _faultInjector.BeforePublicCommit();
 
             if (publicExisted)
             {
-                File.Replace(publicTemporary, publicOutputPath, publicBackup);
+                File.Replace(
+                    publicTemporary,
+                    publicOutputPath,
+                    destinationBackupFileName: null);
             }
             else
             {
                 File.Move(publicTemporary, publicOutputPath, overwrite: false);
             }
 
-            publicCommitted = true;
+            _faultInjector.AfterPublicCommit();
             VerifyActivePair(publicKey, publicOutputPath);
+            CleanupRecoveryArtifacts(manifest);
+        }
+        catch (Exception) when (_faultInjector.SimulatesProcessTermination)
+        {
+            throw;
         }
         catch (Exception exception)
         {
             try
             {
                 _faultInjector.BeforeRollback();
-                RollBackKeyPair(
-                    privateExisted,
-                    publicExisted,
-                    privateCommitted,
-                    publicCommitted,
-                    privateBackup,
-                    publicBackup,
-                    publicOutputPath);
-                if (privateExisted)
-                {
-                    VerifyActivePair(previousPublicKey, publicOutputPath);
-                }
-                else if (File.Exists(_privateKeyPath))
-                {
-                    throw new IOException(
-                        "The failed QA provisioning left a private key active.");
-                }
+                RecoverInterruptedProvisioning();
             }
             catch (Exception recoveryException)
             {
-                preserveBackups = true;
                 throw new QaIssuerException(
                     "QA_ROTATION_RECOVERY_REQUIRED",
                     "QA key provisioning failed and automatic recovery could not be verified.",
@@ -372,56 +403,310 @@ public sealed class QaKeyStore
             CryptographicOperations.ZeroMemory(encodedPublic);
             DeleteOwnedTemporary(privateTemporary, privateDirectory, _privateKeyPath);
             DeleteOwnedTemporary(publicTemporary, publicDirectory, publicOutputPath);
-            if (!preserveBackups)
-            {
-                DeleteOwnedBackup(privateBackup, privateDirectory, _privateKeyPath);
-                DeleteOwnedBackup(publicBackup, publicDirectory, publicOutputPath);
-            }
         }
     }
 
-    private void RollBackKeyPair(
-        bool privateExisted,
-        bool publicExisted,
-        bool privateCommitted,
-        bool publicCommitted,
-        string privateBackup,
-        string publicBackup,
-        string publicOutputPath)
+    private void RecoverInterruptedProvisioning(string? expectedPublicOutputPath = null)
     {
-        if (publicCommitted)
+        string manifestPath = RotationManifestPath();
+        string manifestTemporary = RotationManifestTemporaryPath();
+        if (!File.Exists(manifestPath))
         {
-            if (publicExisted)
+            bool orphanedRecoveryState = File.Exists(manifestTemporary)
+                || File.Exists(RotationBackupPath(_privateKeyPath))
+                || expectedPublicOutputPath is not null
+                    && File.Exists(RotationBackupPath(expectedPublicOutputPath));
+            if (orphanedRecoveryState)
             {
-                File.Replace(publicBackup, publicOutputPath, destinationBackupFileName: null);
+                throw RecoveryRequired();
             }
-            else
-            {
-                File.Delete(publicOutputPath);
-            }
+
+            return;
         }
 
-        if (privateCommitted)
+        try
         {
-            if (privateExisted)
+            RotationManifest manifest = ReadRotationManifest(manifestPath);
+            ValidateRotationManifest(manifest);
+            byte[] previousPublicKey = DecodeManifestPublicKey(
+                manifest.PreviousPublicKey,
+                required: manifest.PrivateExisted);
+            byte[] newPublicKey = DecodeManifestPublicKey(
+                manifest.NewPublicKey,
+                required: true);
+            try
             {
-                File.Replace(privateBackup, _privateKeyPath, destinationBackupFileName: null);
-            }
-            else
-            {
-                File.Delete(_privateKeyPath);
-            }
+                if (CurrentPairMatches(manifest, newPublicKey, newPair: true)
+                    || CurrentPairMatches(
+                        manifest,
+                        previousPublicKey,
+                        newPair: false))
+                {
+                    CleanupRecoveryArtifacts(manifest);
+                    return;
+                }
 
-            if (File.Exists(_privateKeyPath))
-            {
-                _pathSecurity.ProtectPrivateFile(_privateKeyPath);
+                RestorePreviousState(manifest, previousPublicKey);
+                CleanupRecoveryArtifacts(manifest);
             }
+            finally
+            {
+                if (previousPublicKey.Length > 0)
+                {
+                    CryptographicOperations.ZeroMemory(previousPublicKey);
+                }
+
+                CryptographicOperations.ZeroMemory(newPublicKey);
+            }
+        }
+        catch (QaIssuerException exception) when (
+            exception.Code == "QA_ROTATION_RECOVERY_REQUIRED")
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw RecoveryRequired(exception);
         }
     }
+
+    private RotationManifest ReadRotationManifest(string manifestPath)
+    {
+        _pathSecurity.EnsureSafePath(manifestPath);
+        using var stream = new FileStream(
+            manifestPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+        if (stream.Length < 1 || stream.Length > 64 * 1024)
+        {
+            throw new InvalidDataException("The QA rotation manifest size is invalid.");
+        }
+
+        byte[] json = new byte[checked((int)stream.Length)];
+        try
+        {
+            stream.ReadExactly(json);
+            return JsonSerializer.Deserialize<RotationManifest>(json)
+                ?? throw new InvalidDataException("The QA rotation manifest is invalid.");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(json);
+        }
+    }
+
+    private void ValidateRotationManifest(RotationManifest manifest)
+    {
+        if (manifest.Version != 1
+            || !string.Equals(
+                manifest.PrivateKeyPath,
+                _privateKeyPath,
+                StringComparison.OrdinalIgnoreCase)
+            || !Path.IsPathFullyQualified(manifest.PublicOutputPath)
+            || !string.Equals(
+                Path.GetFullPath(manifest.PublicOutputPath),
+                manifest.PublicOutputPath,
+                StringComparison.OrdinalIgnoreCase)
+            || string.Equals(
+                manifest.PublicOutputPath,
+                _privateKeyPath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("The QA rotation manifest is invalid.");
+        }
+
+        _pathSecurity.EnsureSafePath(manifest.PrivateKeyPath);
+        _pathSecurity.EnsureSafePath(manifest.PublicOutputPath);
+        _pathSecurity.EnsureSafePath(RotationBackupPath(manifest.PrivateKeyPath));
+        _pathSecurity.EnsureSafePath(RotationBackupPath(manifest.PublicOutputPath));
+    }
+
+    private static byte[] DecodeManifestPublicKey(string encoded, bool required)
+    {
+        if (!required && string.IsNullOrEmpty(encoded))
+        {
+            return Array.Empty<byte>();
+        }
+
+        byte[] publicKey = Convert.FromBase64String(encoded);
+        ValidateP256PublicKey(publicKey);
+        return publicKey;
+    }
+
+    private bool CurrentPairMatches(
+        RotationManifest manifest,
+        byte[] expectedPublicKey,
+        bool newPair)
+    {
+        bool privateShouldExist = newPair || manifest.PrivateExisted;
+        bool publicShouldExist = newPair || manifest.PublicExisted;
+        bool privateMatches = privateShouldExist
+            ? CurrentPrivateMatches(expectedPublicKey)
+            : !File.Exists(_privateKeyPath);
+        bool publicMatches = publicShouldExist
+            ? CurrentPublicMatches(manifest.PublicOutputPath, expectedPublicKey)
+            : !File.Exists(manifest.PublicOutputPath);
+        return privateMatches && publicMatches;
+    }
+
+    private bool CurrentPrivateMatches(byte[] expectedPublicKey)
+    {
+        if (!File.Exists(_privateKeyPath))
+        {
+            return false;
+        }
+
+        using ECDsa key = OpenSigningKeyCore();
+        byte[] actualPublicKey = key.ExportSubjectPublicKeyInfo();
+        try
+        {
+            return CryptographicOperations.FixedTimeEquals(
+                expectedPublicKey,
+                actualPublicKey);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(actualPublicKey);
+        }
+    }
+
+    private bool CurrentPublicMatches(
+        string publicOutputPath,
+        byte[] expectedPublicKey)
+    {
+        if (!File.Exists(publicOutputPath))
+        {
+            return false;
+        }
+
+        byte[] actualPublicKey = ReadPublicKey(publicOutputPath);
+        try
+        {
+            return CryptographicOperations.FixedTimeEquals(
+                expectedPublicKey,
+                actualPublicKey);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(actualPublicKey);
+        }
+    }
+
+    private void RestorePreviousState(
+        RotationManifest manifest,
+        byte[] previousPublicKey)
+    {
+        RestoreRecoveryTarget(
+            _privateKeyPath,
+            RotationBackupPath(_privateKeyPath),
+            manifest.PrivateExisted,
+            privateFile: true);
+        RestoreRecoveryTarget(
+            manifest.PublicOutputPath,
+            RotationBackupPath(manifest.PublicOutputPath),
+            manifest.PublicExisted,
+            privateFile: false);
+        if (!CurrentPairMatches(manifest, previousPublicKey, newPair: false))
+        {
+            throw new CryptographicException(
+                "The previous QA key pair could not be restored.");
+        }
+    }
+
+    private void RestoreRecoveryTarget(
+        string targetPath,
+        string backupPath,
+        bool targetExisted,
+        bool privateFile)
+    {
+        _pathSecurity.EnsureSafePath(targetPath);
+        _pathSecurity.EnsureSafePath(backupPath);
+        if (!targetExisted)
+        {
+            if (File.Exists(targetPath))
+            {
+                File.Delete(targetPath);
+            }
+
+            return;
+        }
+
+        if (!File.Exists(backupPath))
+        {
+            throw new FileNotFoundException(
+                "A required QA recovery backup is unavailable.");
+        }
+
+        string directory = EnsureDirectory(targetPath);
+        string temporaryPath = TemporaryPath(directory, targetPath);
+        try
+        {
+            CopyRecoveryFile(backupPath, temporaryPath, privateFile);
+            if (File.Exists(targetPath))
+            {
+                File.Replace(
+                    temporaryPath,
+                    targetPath,
+                    destinationBackupFileName: null);
+            }
+            else
+            {
+                File.Move(temporaryPath, targetPath, overwrite: false);
+            }
+
+            if (privateFile)
+            {
+                _pathSecurity.ProtectPrivateFile(targetPath);
+            }
+        }
+        finally
+        {
+            DeleteOwnedTemporary(temporaryPath, directory, targetPath);
+        }
+    }
+
+    private void CleanupRecoveryArtifacts(RotationManifest manifest)
+    {
+        DeleteRecoveryArtifact(
+            RotationBackupPath(manifest.PublicOutputPath),
+            RotationBackupPath(manifest.PublicOutputPath));
+        DeleteRecoveryArtifact(
+            RotationBackupPath(_privateKeyPath),
+            RotationBackupPath(_privateKeyPath));
+        DeleteRecoveryArtifact(RotationManifestPath(), RotationManifestPath());
+    }
+
+    private void DeleteRecoveryArtifact(string artifactPath, string expectedPath)
+    {
+        string fullArtifactPath = Path.GetFullPath(artifactPath);
+        string fullExpectedPath = Path.GetFullPath(expectedPath);
+        if (!string.Equals(
+                fullArtifactPath,
+                fullExpectedPath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new QaIssuerException(
+                "QA_RECOVERY_ARTIFACT_INVALID",
+                "A QA recovery artefact could not be safely identified.");
+        }
+
+        _pathSecurity.EnsureSafePath(fullArtifactPath);
+        if (File.Exists(fullArtifactPath))
+        {
+            File.Delete(fullArtifactPath);
+        }
+    }
+
+    private static QaIssuerException RecoveryRequired(Exception? exception = null) =>
+        new(
+            "QA_ROTATION_RECOVERY_REQUIRED",
+            "QA key recovery could not establish a coherent private and public pair.",
+            exception);
 
     private void VerifyActivePair(byte[] expectedPublicKey, string publicOutputPath)
     {
-        using ECDsa activePrivateKey = OpenSigningKey();
+        using ECDsa activePrivateKey = OpenSigningKeyCore();
         byte[] activePublicKey = activePrivateKey.ExportSubjectPublicKeyInfo();
         byte[] publicFileKey = ReadPublicKey(publicOutputPath);
         try
@@ -444,11 +729,24 @@ public sealed class QaKeyStore
         }
     }
 
-    private static byte[] ReadPublicKey(string publicOutputPath)
+    private byte[] ReadPublicKey(string publicOutputPath)
     {
         string encoded = File.ReadAllText(publicOutputPath, Encoding.ASCII);
         byte[] publicKey = Convert.FromBase64String(encoded);
-        ValidateP256PublicKey(publicKey);
+        QaDecodedPublicKey decoded = _publicKeyDecoder.Decode(publicKey);
+        if (decoded.BytesRead != publicKey.Length
+            || decoded.KeySize != 256
+            || decoded.X is not { Length: 32 }
+            || decoded.Y is not { Length: 32 }
+            || !string.Equals(
+                decoded.CurveOid,
+                NistP256Oid,
+                StringComparison.Ordinal))
+        {
+            throw new CryptographicException(
+                "The QA public key is not an ECDSA NIST P-256 SPKI.");
+        }
+
         return publicKey;
     }
 
@@ -515,6 +813,70 @@ public sealed class QaKeyStore
         stream.Flush(flushToDisk: true);
     }
 
+    private void WriteRotationManifest(
+        string manifestPath,
+        RotationManifest manifest)
+    {
+        string temporaryPath = RotationManifestTemporaryPath();
+        string[] recoveryPaths =
+        [
+            manifestPath,
+            temporaryPath,
+            RotationBackupPath(_privateKeyPath),
+            RotationBackupPath(manifest.PublicOutputPath)
+        ];
+        if (recoveryPaths.Any(File.Exists))
+        {
+            throw RecoveryRequired();
+        }
+
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(manifest);
+        try
+        {
+            WriteNewPrivateFile(temporaryPath, json);
+            File.Move(temporaryPath, manifestPath, overwrite: false);
+            _pathSecurity.ProtectPrivateFile(manifestPath);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(json);
+        }
+    }
+
+    private void CopyRecoveryFile(
+        string sourcePath,
+        string destinationPath,
+        bool privateFile)
+    {
+        _pathSecurity.EnsureSafePath(sourcePath);
+        _pathSecurity.EnsureSafePath(destinationPath);
+        using (new FileStream(
+                   destinationPath,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+        }
+
+        if (privateFile)
+        {
+            _pathSecurity.ProtectPrivateFile(destinationPath);
+        }
+
+        using var source = new FileStream(
+            sourcePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+        using var destination = new FileStream(
+            destinationPath,
+            FileMode.Open,
+            FileAccess.Write,
+            FileShare.None);
+        source.CopyTo(destination);
+        destination.Flush(flushToDisk: true);
+    }
+
     private void WriteNewPrivateFile(string path, ReadOnlySpan<byte> contents)
     {
         using (new FileStream(
@@ -554,12 +916,16 @@ public sealed class QaKeyStore
             directory,
             $".{Path.GetFileName(targetPath)}.{Guid.NewGuid():N}.tmp");
 
-    private static string BackupPath(string directory, string targetPath) =>
-        Path.Combine(
-            directory,
-            $".{Path.GetFileName(targetPath)}.{Guid.NewGuid():N}.bak");
+    private string RotationManifestPath() =>
+        string.Concat(_privateKeyPath, ".rotation.json");
 
-    private static void DeleteOwnedTemporary(
+    private string RotationManifestTemporaryPath() =>
+        string.Concat(RotationManifestPath(), ".tmp");
+
+    private static string RotationBackupPath(string targetPath) =>
+        string.Concat(targetPath, ".rotation.bak");
+
+    private void DeleteOwnedTemporary(
         string temporaryPath,
         string directory,
         string targetPath)
@@ -567,13 +933,7 @@ public sealed class QaKeyStore
         DeleteOwnedArtifact(temporaryPath, directory, targetPath, ".tmp");
     }
 
-    private static void DeleteOwnedBackup(
-        string backupPath,
-        string directory,
-        string targetPath) =>
-        DeleteOwnedArtifact(backupPath, directory, targetPath, ".bak");
-
-    private static void DeleteOwnedArtifact(
+    private void DeleteOwnedArtifact(
         string artifactPath,
         string directory,
         string targetPath,
@@ -596,7 +956,15 @@ public sealed class QaKeyStore
                 fileName.AsSpan(prefix.Length, identifierLength),
                 "N",
                 out _);
-        if (owned && File.Exists(fullArtifactPath))
+        if (!owned)
+        {
+            throw new QaIssuerException(
+                "QA_RECOVERY_ARTIFACT_INVALID",
+                "A QA temporary artefact could not be safely identified.");
+        }
+
+        _pathSecurity.EnsureSafePath(fullArtifactPath);
+        if (File.Exists(fullArtifactPath))
         {
             File.Delete(fullArtifactPath);
         }
@@ -757,30 +1125,7 @@ public sealed class QaKeyStore
 
         public void ProtectPrivateFile(string path)
         {
-            if (OperatingSystem.IsWindows())
-            {
-                ProtectPrivateFileWindows(path);
-            }
-        }
-
-        [SupportedOSPlatform("windows")]
-        private static void ProtectPrivateFileWindows(string path)
-        {
-            SecurityIdentifier currentUser = WindowsIdentity.GetCurrent().User
-                ?? throw new InvalidOperationException(
-                    "The current Windows user identity is unavailable.");
-            var security = new FileSecurity();
-            security.SetOwner(currentUser);
-            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-            security.AddAccessRule(new FileSystemAccessRule(
-                currentUser,
-                FileSystemRights.FullControl,
-                AccessControlType.Allow));
-            security.AddAccessRule(new FileSystemAccessRule(
-                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
-                FileSystemRights.FullControl,
-                AccessControlType.Allow));
-            new FileInfo(path).SetAccessControl(security);
+            QaFileSecurity.ProtectForCurrentUser(path);
         }
     }
 
@@ -792,4 +1137,13 @@ public sealed class QaKeyStore
         public ECParameters Export(ECDsa key) =>
             key.ExportParameters(includePrivateParameters: true);
     }
+
+    private sealed record RotationManifest(
+        int Version,
+        string PrivateKeyPath,
+        string PublicOutputPath,
+        bool PrivateExisted,
+        bool PublicExisted,
+        string PreviousPublicKey,
+        string NewPublicKey);
 }
