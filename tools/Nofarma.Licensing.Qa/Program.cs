@@ -24,6 +24,19 @@ public sealed record LicenseChannelKeyValidation(
     string? Code,
     string Message);
 
+public sealed record QaDecodedPublicKey(
+    int BytesRead,
+    int KeySize,
+    string? CurveOid,
+    byte[] X,
+    byte[] Y,
+    byte[] CanonicalSubjectPublicKey);
+
+public interface IQaPublicKeyDecoder
+{
+    QaDecodedPublicKey Decode(ReadOnlyMemory<byte> subjectPublicKey);
+}
+
 public static class QaPublicKeyValidator
 {
     private const int MaximumPublicKeyFileBytes = 8 * 1024;
@@ -33,9 +46,71 @@ public static class QaPublicKeyValidator
         string qaPublicKeyPath,
         string commercialPublicKeyPath)
     {
+        LicenseChannelKeyValidation result = ValidateCommercialCore(
+            qaPublicKeyPath,
+            commercialPublicKeyPath,
+            DefaultPublicKeyDecoder.Instance,
+            out _);
+        return result;
+    }
+
+    public static LicenseChannelKeyValidation ValidateCommercial(
+        string qaPublicKeyPath,
+        string commercialPublicKeyPath,
+        IQaPublicKeyDecoder decoder)
+    {
+        ArgumentNullException.ThrowIfNull(decoder);
+        return ValidateCommercialCore(
+            qaPublicKeyPath,
+            commercialPublicKeyPath,
+            decoder,
+            out _);
+    }
+
+    public static LicenseChannelKeyValidation ValidateCommercialToFile(
+        string qaPublicKeyPath,
+        string commercialPublicKeyPath,
+        string validatedOutputPath)
+    {
+        LicenseChannelKeyValidation result = ValidateCommercialCore(
+            qaPublicKeyPath,
+            commercialPublicKeyPath,
+            DefaultPublicKeyDecoder.Instance,
+            out byte[] commercialSubjectPublicKey);
+        if (!result.IsValid)
+        {
+            return result;
+        }
+
+        try
+        {
+            WriteCanonicalPublicKey(validatedOutputPath, commercialSubjectPublicKey);
+            return result;
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or ArgumentException)
+        {
+            return new LicenseChannelKeyValidation(
+                false,
+                "NFLC004",
+                "The validated Commercial public key output is unavailable.");
+        }
+    }
+
+    private static LicenseChannelKeyValidation ValidateCommercialCore(
+        string qaPublicKeyPath,
+        string commercialPublicKeyPath,
+        IQaPublicKeyDecoder decoder,
+        out byte[] commercialSubjectPublicKey)
+    {
+        commercialSubjectPublicKey = Array.Empty<byte>();
         if (!TryReadP256(
                 qaPublicKeyPath,
+                decoder,
                 out ECParameters qa,
+                out _,
                 out string? qaFailure))
         {
             return new LicenseChannelKeyValidation(
@@ -46,7 +121,9 @@ public static class QaPublicKeyValidator
 
         if (!TryReadP256(
                 commercialPublicKeyPath,
+                decoder,
                 out ECParameters commercial,
+                out commercialSubjectPublicKey,
                 out string? commercialFailure))
         {
             return new LicenseChannelKeyValidation(
@@ -74,12 +151,58 @@ public static class QaPublicKeyValidator
                 "Commercial and QA public keys are valid and distinct.");
     }
 
+    private static void WriteCanonicalPublicKey(
+        string outputPath,
+        byte[] subjectPublicKey)
+    {
+        string fullOutputPath = Path.GetFullPath(outputPath);
+        string? directory = Path.GetDirectoryName(fullOutputPath);
+        if (directory is null)
+        {
+            throw new ArgumentException("The validated public key output path is invalid.");
+        }
+
+        Directory.CreateDirectory(directory);
+        string temporaryPath = Path.Combine(
+            directory,
+            $".{Path.GetFileName(fullOutputPath)}.{Guid.NewGuid():N}.tmp");
+        byte[] encoded = System.Text.Encoding.ASCII.GetBytes(
+            string.Concat(
+                Convert.ToBase64String(subjectPublicKey),
+                Environment.NewLine));
+        try
+        {
+            using (var stream = new FileStream(
+                       temporaryPath,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None))
+            {
+                stream.Write(encoded);
+                stream.Flush(flushToDisk: true);
+            }
+
+            File.Move(temporaryPath, fullOutputPath, overwrite: true);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(encoded);
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
+    }
+
     private static bool TryReadP256(
         string path,
+        IQaPublicKeyDecoder decoder,
         out ECParameters parameters,
+        out byte[] canonicalSubjectPublicKey,
         out string? failure)
     {
         parameters = default;
+        canonicalSubjectPublicKey = Array.Empty<byte>();
         failure = null;
         try
         {
@@ -108,15 +231,13 @@ public static class QaPublicKeyValidator
             {
                 string base64 = System.Text.Encoding.ASCII.GetString(encoded);
                 subjectPublicKey = Convert.FromBase64String(base64);
-                using ECDsa key = ECDsa.Create();
-                key.ImportSubjectPublicKeyInfo(subjectPublicKey, out int bytesRead);
-                parameters = key.ExportParameters(includePrivateParameters: false);
-                if (bytesRead != subjectPublicKey.Length
-                    || key.KeySize != 256
-                    || parameters.Q.X is not { Length: 32 }
-                    || parameters.Q.Y is not { Length: 32 }
+                QaDecodedPublicKey decoded = decoder.Decode(subjectPublicKey);
+                if (decoded.BytesRead != subjectPublicKey.Length
+                    || decoded.KeySize != 256
+                    || decoded.X is not { Length: 32 }
+                    || decoded.Y is not { Length: 32 }
                     || !string.Equals(
-                        parameters.Curve.Oid.Value,
+                        decoded.CurveOid,
                         NistP256Oid,
                         StringComparison.Ordinal))
                 {
@@ -125,6 +246,16 @@ public static class QaPublicKeyValidator
                     return false;
                 }
 
+                parameters = new ECParameters
+                {
+                    Curve = ECCurve.CreateFromValue(decoded.CurveOid!),
+                    Q = new ECPoint
+                    {
+                        X = decoded.X,
+                        Y = decoded.Y
+                    }
+                };
+                canonicalSubjectPublicKey = decoded.CanonicalSubjectPublicKey.ToArray();
                 return true;
             }
             finally
@@ -141,11 +272,32 @@ public static class QaPublicKeyValidator
                 or UnauthorizedAccessException
                 or ArgumentException
                 or FormatException
-                or CryptographicException)
+                or CryptographicException
+                or PlatformNotSupportedException)
         {
             parameters = default;
+            canonicalSubjectPublicKey = Array.Empty<byte>();
             failure = "The public key file is unavailable or invalid.";
             return false;
+        }
+    }
+
+    private sealed class DefaultPublicKeyDecoder : IQaPublicKeyDecoder
+    {
+        internal static readonly DefaultPublicKeyDecoder Instance = new();
+
+        public QaDecodedPublicKey Decode(ReadOnlyMemory<byte> subjectPublicKey)
+        {
+            using ECDsa key = ECDsa.Create();
+            key.ImportSubjectPublicKeyInfo(subjectPublicKey.Span, out int bytesRead);
+            ECParameters parameters = key.ExportParameters(includePrivateParameters: false);
+            return new QaDecodedPublicKey(
+                bytesRead,
+                key.KeySize,
+                parameters.Curve.Oid.Value,
+                parameters.Q.X ?? Array.Empty<byte>(),
+                parameters.Q.Y ?? Array.Empty<byte>(),
+                key.ExportSubjectPublicKeyInfo());
         }
     }
 }
@@ -256,11 +408,12 @@ public static class QaCli
 
     private static int RunCommercialValidation(OptionSet options, TextWriter error)
     {
-        options.RequireOnly("qa-public", "commercial-public");
+        options.RequireOnly("qa-public", "commercial-public", "validated-output");
         LicenseChannelKeyValidation result =
-            QaPublicKeyValidator.ValidateCommercial(
+            QaPublicKeyValidator.ValidateCommercialToFile(
                 options.Required("qa-public"),
-                options.Required("commercial-public"));
+                options.Required("commercial-public"),
+                options.Required("validated-output"));
         if (result.IsValid)
         {
             return 0;
@@ -311,18 +464,30 @@ public static class QaCli
 
     private static DateTimeOffset ParseDate(string value, string optionName)
     {
-        if (!DateTimeOffset.TryParse(
-                value,
+        string? datePart = value.EndsWith('Z')
+            ? value[..^1]
+            : value.EndsWith("+00:00", StringComparison.Ordinal)
+                ? value[..^6]
+                : null;
+        string[] formats =
+        [
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF"
+        ];
+        if (datePart is null
+            || !DateTime.TryParseExact(
+                datePart,
+                formats,
                 CultureInfo.InvariantCulture,
-                DateTimeStyles.AllowWhiteSpaces,
-                out DateTimeOffset parsed))
+                DateTimeStyles.None,
+                out DateTime parsed))
         {
             throw new QaIssuerException(
                 "VALIDITY_DATES_INVALID",
                 $"The {optionName} date is invalid.");
         }
 
-        return parsed;
+        return new DateTimeOffset(DateTime.SpecifyKind(parsed, DateTimeKind.Utc));
     }
 
     private static QaIssuerException Usage(string message) =>

@@ -19,10 +19,14 @@ public sealed class QaLicenseIssuer
     public QaLicenseIssuer(
         ECDsa signingKey,
         TimeProvider? timeProvider = null,
-        Func<Guid>? licenseIdFactory = null)
+        Func<Guid>? licenseIdFactory = null,
+        IQaPrivateKeyParametersExporter? parametersExporter = null)
     {
         _signingKey = signingKey ?? throw new ArgumentNullException(nameof(signingKey));
-        ValidateSigningKey(_signingKey);
+        ValidateSigningKey(
+            _signingKey,
+            parametersExporter ??
+                QaKeyStore.DefaultPrivateKeyParametersExporter.Instance);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _licenseIdFactory = licenseIdFactory ?? Guid.NewGuid;
         _publicKey = _signingKey.ExportSubjectPublicKeyInfo();
@@ -181,12 +185,25 @@ public sealed class QaLicenseIssuer
         }
     }
 
-    private static void ValidateSigningKey(ECDsa signingKey)
+    private static void ValidateSigningKey(
+        ECDsa signingKey,
+        IQaPrivateKeyParametersExporter parametersExporter)
     {
-        ECParameters parameters;
+        ECParameters parameters = default;
         try
         {
-            parameters = signingKey.ExportParameters(includePrivateParameters: true);
+            parameters = parametersExporter.Export(signingKey);
+            if (signingKey.KeySize != 256
+                || parameters.D is null
+                || !string.Equals(
+                    parameters.Curve.Oid.Value,
+                    NistP256Oid,
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "The QA issuer requires an ECDSA NIST P-256 private signing key.",
+                    nameof(signingKey));
+            }
         }
         catch (CryptographicException exception)
         {
@@ -195,17 +212,12 @@ public sealed class QaLicenseIssuer
                 nameof(signingKey),
                 exception);
         }
-
-        if (signingKey.KeySize != 256
-            || parameters.D is null
-            || !string.Equals(
-                parameters.Curve.Oid.Value,
-                NistP256Oid,
-                StringComparison.Ordinal))
+        finally
         {
-            throw new ArgumentException(
-                "The QA issuer requires an ECDSA NIST P-256 private signing key.",
-                nameof(signingKey));
+            if (parameters.D is not null)
+            {
+                CryptographicOperations.ZeroMemory(parameters.D);
+            }
         }
     }
 }

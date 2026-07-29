@@ -16,9 +16,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <NofarmaLicenseChannel Condition="'$(NofarmaLicenseChannel)' == ''">Unlicensed</NofarmaLicenseChannel>
-    <NofarmaQaPublicKeyPath Condition="'$(NofarmaQaPublicKeyPath)' == ''">$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64</NofarmaQaPublicKeyPath>
-    <NofarmaCommercialPublicKeyPath Condition="'$(NofarmaCommercialPublicKeyPath)' == ''">$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64</NofarmaCommercialPublicKeyPath>
-    <NofarmaQaIssuerProjectPath Condition="'$(NofarmaQaIssuerProjectPath)' == ''">$(MSBuildProjectDirectory)\..\..\tools\Nofarma.Licensing.Qa\Nofarma.Licensing.Qa.csproj</NofarmaQaIssuerProjectPath>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(NofarmaLicenseChannel)' == 'QA'">
@@ -40,17 +37,27 @@
     Name="ValidateCommercialLicenseKey"
     BeforeTargets="PrepareForBuild"
     Condition="'$(NofarmaLicenseChannel)' == 'Commercial'">
+    <Delete Files="$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64" />
     <Error
       Code="NFLC001"
-      Condition="!Exists('$(NofarmaCommercialPublicKeyPath)')"
+      Condition="!Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64')"
       Text="commercial public key is not provisioned" />
     <Error
       Code="NFLC003"
-      Condition="!Exists('$(NofarmaQaPublicKeyPath)')"
+      Condition="!Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64')"
       Text="QA public key is not provisioned for channel separation validation" />
     <Exec
-      Condition="Exists('$(NofarmaCommercialPublicKeyPath)') and Exists('$(NofarmaQaPublicKeyPath)')"
-      Command="dotnet run --project &quot;$(NofarmaQaIssuerProjectPath)&quot; --configuration $(Configuration) --no-launch-profile -- validate-commercial-key --qa-public &quot;$(NofarmaQaPublicKeyPath)&quot; --commercial-public &quot;$(NofarmaCommercialPublicKeyPath)&quot;" />
+      Condition="Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64') and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64')"
+      Command="dotnet run --project &quot;$(MSBuildProjectDirectory)\..\..\tools\Nofarma.Licensing.Qa\Nofarma.Licensing.Qa.csproj&quot; --configuration Release --no-launch-profile -- validate-commercial-key --qa-public &quot;$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64&quot; --commercial-public &quot;$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64&quot; --validated-output &quot;$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64&quot;" />
+    <Error
+      Code="NFLC005"
+      Condition="Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64') and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64') and !Exists('$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64')"
+      Text="validated Commercial public key snapshot was not produced" />
+    <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64')">
+      <EmbeddedResource Include="$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.validated.spki.b64">
+        <LogicalName>Nofarma.Desktop.LicensingPublicKey</LogicalName>
+      </EmbeddedResource>
+    </ItemGroup>
   </Target>
 
   <ItemGroup>
@@ -66,14 +73,8 @@
     <Content Include="Assets\NofarmaLogo.png" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(NofarmaLicenseChannel)' == 'QA' and Exists('$(NofarmaQaPublicKeyPath)')">
-    <EmbeddedResource Include="$(NofarmaQaPublicKeyPath)">
-      <LogicalName>Nofarma.Desktop.LicensingPublicKey</LogicalName>
-    </EmbeddedResource>
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(NofarmaLicenseChannel)' == 'Commercial' and Exists('$(NofarmaCommercialPublicKeyPath)')">
-    <EmbeddedResource Include="$(NofarmaCommercialPublicKeyPath)">
+  <ItemGroup Condition="'$(NofarmaLicenseChannel)' == 'QA' and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64')">
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64">
       <LogicalName>Nofarma.Desktop.LicensingPublicKey</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
