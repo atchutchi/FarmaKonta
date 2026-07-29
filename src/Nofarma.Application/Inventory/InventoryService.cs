@@ -1,4 +1,5 @@
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Licensing;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Domain.Auditing;
@@ -11,7 +12,7 @@ namespace Nofarma.Application.Inventory;
 public sealed class InventoryService(
     IInventoryStore store,
     AuthorizationService authorization,
-    IStockOperationPolicy stockPolicy,
+    ILicensedOperationPolicy licensedOperationPolicy,
     IUtcClock clock)
 {
     public async Task<StockConfirmationResult> ConfirmEntryAsync(
@@ -21,9 +22,18 @@ public sealed class InventoryService(
     {
         ArgumentNullException.ThrowIfNull(request);
         authorization.EnsureAllowed(actor, EntryCapability(request.Type));
-        await EnsureConfirmationAllowedAsync(cancellationToken).ConfigureAwait(false);
         InventoryActorContext context = await GetContextAsync(actor, cancellationToken)
             .ConfigureAwait(false);
+        StockConfirmationResult? repeated = await store.GetIdempotentResultAsync(
+            context.PharmacyId,
+            request.IdempotencyKey,
+            cancellationToken).ConfigureAwait(false);
+        if (repeated is not null)
+        {
+            return repeated;
+        }
+
+        await EnsureConfirmationAllowedAsync(cancellationToken).ConfigureAwait(false);
         StockProductRules rules = await GetProductRulesAsync(
             context.PharmacyId,
             request.ProductId,
@@ -75,10 +85,19 @@ public sealed class InventoryService(
     {
         ArgumentNullException.ThrowIfNull(request);
         authorization.EnsureAllowed(actor, Capability.AdjustStock);
-        await EnsureConfirmationAllowedAsync(cancellationToken).ConfigureAwait(false);
         ValidateAdjustment(request);
         InventoryActorContext context = await GetContextAsync(actor, cancellationToken)
             .ConfigureAwait(false);
+        StockConfirmationResult? repeated = await store.GetIdempotentResultAsync(
+            context.PharmacyId,
+            request.IdempotencyKey,
+            cancellationToken).ConfigureAwait(false);
+        if (repeated is not null)
+        {
+            return repeated;
+        }
+
+        await EnsureConfirmationAllowedAsync(cancellationToken).ConfigureAwait(false);
         StockProductRules rules = await GetProductRulesAsync(
             context.PharmacyId,
             request.ProductId,
@@ -123,7 +142,6 @@ public sealed class InventoryService(
     {
         ArgumentNullException.ThrowIfNull(request);
         authorization.EnsureAllowed(actor, Capability.CompensateStock);
-        await EnsureConfirmationAllowedAsync(cancellationToken).ConfigureAwait(false);
         if (request.OriginalMovementId.Value == Guid.Empty ||
             string.IsNullOrWhiteSpace(request.Reason) ||
             string.IsNullOrWhiteSpace(request.IdempotencyKey))
@@ -134,6 +152,16 @@ public sealed class InventoryService(
 
         InventoryActorContext context = await GetContextAsync(actor, cancellationToken)
             .ConfigureAwait(false);
+        StockConfirmationResult? repeated = await store.GetIdempotentResultAsync(
+            context.PharmacyId,
+            request.IdempotencyKey,
+            cancellationToken).ConfigureAwait(false);
+        if (repeated is not null)
+        {
+            return repeated;
+        }
+
+        await EnsureConfirmationAllowedAsync(cancellationToken).ConfigureAwait(false);
         EntityId movementId = EntityId.New();
         UtcInstant occurredUtc = clock.GetCurrentInstant();
         var command = new StockCompensationCommand(
@@ -234,11 +262,11 @@ public sealed class InventoryService(
 
     private async Task EnsureConfirmationAllowedAsync(CancellationToken cancellationToken)
     {
-        StockOperationPolicyResult result = await stockPolicy.CanConfirmAsync(cancellationToken)
+        LicensedOperationPolicyResult result = await licensedOperationPolicy.CanCreateAsync(cancellationToken)
             .ConfigureAwait(false);
         if (!result.IsAllowed)
         {
-            throw new StockOperationBlockedException(result.Code ?? "STOCK_CONFIRMATION_BLOCKED");
+            throw new StockOperationBlockedException(result.Code ?? "LICENSE_OPERATION_BLOCKED");
         }
     }
 

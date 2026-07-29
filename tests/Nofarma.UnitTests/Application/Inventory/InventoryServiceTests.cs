@@ -2,6 +2,7 @@ using Nofarma.Application.Abstractions;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Application.Inventory;
+using Nofarma.Application.Licensing;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Catalog;
 using Nofarma.Domain.Common;
@@ -51,7 +52,25 @@ public sealed class InventoryServiceTests
                 ValidEntry(),
                 CancellationToken.None));
 
-        Assert.Equal("LICENSE_REQUIRED", exception.Code);
+        Assert.Equal("LICENSE_MISSING", exception.Code);
+    }
+
+    [Fact]
+    public async Task ExistingEntryResultReturnsBeforeBlockedLicenceAndWithoutAnotherWrite()
+    {
+        var store = new InventoryStore
+        {
+            IdempotentResult = new StockConfirmationResult(
+                EntityId.New(), EntityId.New(), EntityId.New(), 10, 10,
+                StockMovementType.QuickEntry, FixedClock.Now)
+        };
+        InventoryService service = CreateService(store, allowed: false);
+
+        StockConfirmationResult result = await service.ConfirmEntryAsync(
+            Session(UserRole.StockManager), ValidEntry(), CancellationToken.None);
+
+        Assert.Equal(store.IdempotentResult, result);
+        Assert.Equal(0, store.ConfirmationWrites);
     }
 
     [Fact]
@@ -69,6 +88,28 @@ public sealed class InventoryServiceTests
                 "Quebra",
                 "device-1:loss-1"),
             CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AdjustmentIsBlockedWithoutLicenceBeforeTheStoreWrite()
+    {
+        var store = new InventoryStore();
+        InventoryService service = CreateService(store, allowed: false);
+
+        StockOperationBlockedException error = await Assert.ThrowsAsync<StockOperationBlockedException>(
+            () => service.ConfirmAdjustmentAsync(
+                Session(UserRole.Administrator),
+                new StockAdjustmentRequest(
+                    EntityId.New(),
+                    EntityId.New(),
+                    -1,
+                    StockMovementType.Loss,
+                    "Quebra",
+                    "adjustment:1"),
+                CancellationToken.None));
+
+        Assert.Equal("LICENSE_MISSING", error.Code);
+        Assert.Null(store.LastConfirmation);
     }
 
     [Fact]
@@ -144,6 +185,25 @@ public sealed class InventoryServiceTests
     }
 
     [Fact]
+    public async Task CompensationIsBlockedWithoutLicenceBeforeTheStoreWrite()
+    {
+        var store = new InventoryStore();
+        InventoryService service = CreateService(store, allowed: false);
+
+        StockOperationBlockedException error = await Assert.ThrowsAsync<StockOperationBlockedException>(
+            () => service.CompensateAsync(
+                Session(UserRole.Administrator),
+                new StockCompensationRequest(
+                    EntityId.New(),
+                    "Produto errado",
+                    "compensation:1"),
+                CancellationToken.None));
+
+        Assert.Equal("LICENSE_MISSING", error.Code);
+        Assert.Null(store.LastCompensation);
+    }
+
+    [Fact]
     public async Task CashierCanReadStockWithoutPurchaseCost()
     {
         var store = new InventoryStore();
@@ -203,6 +263,10 @@ public sealed class InventoryServiceTests
 
         public StockCompensationCommand? LastCompensation { get; private set; }
 
+        public StockConfirmationResult? IdempotentResult { get; set; }
+
+        public int ConfirmationWrites { get; private set; }
+
         public Task<InventoryActorContext?> GetContextAsync(
             EntityId actorUserId,
             CancellationToken cancellationToken) => Task.FromResult<InventoryActorContext?>(
@@ -213,12 +277,18 @@ public sealed class InventoryServiceTests
             EntityId productId,
             CancellationToken cancellationToken) => Task.FromResult<StockProductRules?>(Rules);
 
+        public Task<StockConfirmationResult?> GetIdempotentResultAsync(
+            EntityId pharmacyId,
+            string idempotencyKey,
+            CancellationToken cancellationToken) => Task.FromResult(IdempotentResult);
+
         public Task<StockConfirmationResult> ConfirmAsync(
             InventoryActorContext context,
             InventoryConfirmation confirmation,
             AuditEvent auditEvent,
             CancellationToken cancellationToken)
         {
+            ConfirmationWrites++;
             LastConfirmation = confirmation;
             LastAudit = auditEvent;
             return Task.FromResult(new StockConfirmationResult(
@@ -284,11 +354,11 @@ public sealed class InventoryServiceTests
             CancellationToken cancellationToken) => Task.FromResult(new StockOverview([], 0, 0, 0));
     }
 
-    private sealed class StockPolicy(bool allowed) : IStockOperationPolicy
+    private sealed class StockPolicy(bool allowed) : ILicensedOperationPolicy
     {
-        public Task<StockOperationPolicyResult> CanConfirmAsync(
+        public Task<LicensedOperationPolicyResult> CanCreateAsync(
             CancellationToken cancellationToken) => Task.FromResult(
-                new StockOperationPolicyResult(allowed, allowed ? null : "LICENSE_REQUIRED"));
+                new LicensedOperationPolicyResult(allowed, allowed ? null : "LICENSE_MISSING"));
     }
 
     private sealed class FixedClock : IUtcClock

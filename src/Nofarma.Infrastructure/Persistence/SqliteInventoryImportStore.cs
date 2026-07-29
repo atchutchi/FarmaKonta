@@ -133,6 +133,31 @@ public sealed class SqliteInventoryImportStore(DbContextOptions<NofarmaDbContext
             rows.Select(row => MapRow(row, errors)).ToArray());
     }
 
+    public async Task<InventoryImportConfirmationResult?> GetConfirmationResultAsync(
+        EntityId pharmacyId,
+        EntityId importId,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await using var db = new NofarmaDbContext(options);
+        InventoryImportRecord? import = await db.InventoryImports.AsNoTracking()
+            .SingleOrDefaultAsync(
+                item => item.Id == importId.Value &&
+                    item.PharmacyId == pharmacyId.Value &&
+                    item.Status == (int)InventoryImportStatus.Confirmed &&
+                    item.ConfirmationIdempotencyKey == idempotencyKey.Trim(),
+                cancellationToken).ConfigureAwait(false);
+        if (import is null)
+        {
+            return null;
+        }
+
+        int movements = await db.StockMovements.AsNoTracking()
+            .CountAsync(item => item.SourceDocumentId == import.Id, cancellationToken)
+            .ConfigureAwait(false);
+        return new InventoryImportConfirmationResult(importId, 0, movements, true);
+    }
+
     public async Task<InventoryImportConfirmationResult> ConfirmAsync(
         InventoryImportStoreContext context,
         EntityId userId,

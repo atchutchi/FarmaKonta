@@ -273,6 +273,22 @@ public sealed class SqlitePurchaseStore(
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<PurchaseReceiptDetails?> GetReceiptResultAsync(
+        EntityId pharmacyId,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = new NofarmaDbContext(options);
+        GoodsReceiptRecord? receipt = await dbContext.GoodsReceipts.AsNoTracking()
+            .SingleOrDefaultAsync(
+                record => record.PharmacyId == pharmacyId.Value &&
+                    record.IdempotencyKey == idempotencyKey.Trim(),
+                cancellationToken).ConfigureAwait(false);
+        return receipt is null
+            ? null
+            : await MapReceiptAsync(dbContext, receipt, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<PurchaseReceiptDetails> ConfirmReceiptAsync(
         PurchaseActorContext context,
         ConfirmPurchaseReceiptCommand command,

@@ -12,7 +12,7 @@ public sealed class LicenseService(
     ILicenseDocumentVerifier verifier,
     IDeviceLicenseIdentityStore deviceIdentityStore,
     ILicenseClockCheckpoint clockCheckpoint,
-    IUtcClock clock)
+    IUtcClock clock) : ILicenseStatusProvider
 {
     private const int MaximumReplaceAttempts = 3;
 
@@ -152,7 +152,7 @@ public sealed class LicenseService(
         LicenseStatus status = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
         if (!status.AllowsNewOperations)
         {
-            throw new LicenseOperationBlockedException(StatusCode(status.State));
+            throw new LicenseOperationBlockedException(LicenseOperationPolicyRules.For(status.State).Code!);
         }
     }
 
@@ -268,13 +268,4 @@ public sealed class LicenseService(
     private static LicenseStatus InvalidStatus() =>
         new(LicenseState.Invalid, false, true, null);
 
-    private static string StatusCode(LicenseState state) => state switch
-    {
-        LicenseState.Missing => "LICENSE_MISSING",
-        LicenseState.Invalid => "LICENSE_INVALID",
-        LicenseState.NotYetValid => "LICENSE_NOT_YET_VALID",
-        LicenseState.ExpiredReadOnly => "LICENSE_EXPIRED_READ_ONLY",
-        LicenseState.ClockRollback => "LICENSE_CLOCK_ROLLBACK",
-        _ => "LICENSE_OPERATION_BLOCKED"
-    };
 }

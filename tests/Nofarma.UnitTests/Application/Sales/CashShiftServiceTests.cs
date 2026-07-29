@@ -2,6 +2,7 @@ using Nofarma.Application.Abstractions;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Application.Inventory;
+using Nofarma.Application.Licensing;
 using Nofarma.Application.Sales;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Common;
@@ -58,7 +59,7 @@ public sealed class CashShiftServiceTests
                 new OpenCashShiftRequest(0, "open:1"),
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal("LICENSE_REQUIRED", exception.Code);
+        Assert.Equal("LICENSE_MISSING", exception.Code);
         Assert.Null(store.Current);
     }
 
@@ -549,7 +550,7 @@ public sealed class CashShiftServiceTests
 
     private static CashShiftService CreateService(
         ICashShiftStore store,
-        IStockOperationPolicy policy,
+        ILicensedOperationPolicy policy,
         IUtcClock? clock = null)
     {
         clock ??= new FixedClock();
@@ -812,15 +813,15 @@ public sealed class CashShiftServiceTests
             shift.Movements.Count);
     }
 
-    private sealed class StockPolicy(bool allowed) : IStockOperationPolicy
+    private sealed class StockPolicy(bool allowed) : ILicensedOperationPolicy
     {
         public bool Allowed { get; set; } = allowed;
 
-        public Task<StockOperationPolicyResult> CanConfirmAsync(
+        public Task<LicensedOperationPolicyResult> CanCreateAsync(
             CancellationToken cancellationToken) => Task.FromResult(
-                new StockOperationPolicyResult(
+                new LicensedOperationPolicyResult(
                     Allowed,
-                    Allowed ? null : "LICENSE_REQUIRED"));
+                    Allowed ? null : "LICENSE_MISSING"));
     }
 
     private sealed class FixedClock : IUtcClock

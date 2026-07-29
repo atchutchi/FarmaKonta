@@ -1,4 +1,5 @@
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Licensing;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Application.Inventory;
@@ -12,7 +13,7 @@ namespace Nofarma.Application.Purchasing;
 public sealed class PurchaseService(
     IPurchaseStore store,
     AuthorizationService authorization,
-    IStockOperationPolicy stockPolicy,
+    ILicensedOperationPolicy licensedOperationPolicy,
     IUtcClock clock)
 {
     public async Task<PurchaseDetails> CreateAsync(
@@ -136,15 +137,25 @@ public sealed class PurchaseService(
         authorization.EnsureAllowed(actor, Capability.ManagePurchases);
         ArgumentNullException.ThrowIfNull(request);
         ValidateReceipt(request);
-        StockOperationPolicyResult policy = await stockPolicy.CanConfirmAsync(cancellationToken)
+        PurchaseActorContext context = await GetContextAsync(actor, cancellationToken)
+            .ConfigureAwait(false);
+        string normalizedKey = request.IdempotencyKey.Trim();
+        PurchaseReceiptDetails? repeated = await store.GetReceiptResultAsync(
+            context.PharmacyId,
+            normalizedKey,
+            cancellationToken).ConfigureAwait(false);
+        if (repeated is not null)
+        {
+            return repeated;
+        }
+
+        LicensedOperationPolicyResult policy = await licensedOperationPolicy.CanCreateAsync(cancellationToken)
             .ConfigureAwait(false);
         if (!policy.IsAllowed)
         {
-            throw new StockOperationBlockedException(policy.Code ?? "STOCK_CONFIRMATION_BLOCKED");
+            throw new StockOperationBlockedException(policy.Code ?? "LICENSE_OPERATION_BLOCKED");
         }
 
-        PurchaseActorContext context = await GetContextAsync(actor, cancellationToken)
-            .ConfigureAwait(false);
         EntityId receiptId = EntityId.New();
         UtcInstant occurredUtc = clock.GetCurrentInstant();
         ConfirmPurchaseReceiptLineCommand[] lines = request.Lines.Select((line, index) =>
@@ -166,7 +177,7 @@ public sealed class PurchaseService(
             request.DocumentNumber!.Trim(),
             request.DocumentDate,
             request.Notes,
-            request.IdempotencyKey.Trim(),
+            normalizedKey,
             occurredUtc,
             lines);
         AuditEvent audit = CreateAudit(

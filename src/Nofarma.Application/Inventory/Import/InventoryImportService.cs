@@ -1,5 +1,6 @@
 using System.Globalization;
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Licensing;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Domain.Catalog;
@@ -13,7 +14,7 @@ public sealed class InventoryImportService(
     IInventoryImportStore store,
     IInventoryImportErrorWriter errorWriter,
     AuthorizationService authorization,
-    IStockOperationPolicy stockPolicy,
+    ILicensedOperationPolicy licensedOperationPolicy,
     IUtcClock clock)
 {
     public async Task<InventoryImportDraft> CreateDraftAsync(
@@ -63,18 +64,29 @@ public sealed class InventoryImportService(
             throw new ArgumentException("A chave idempotente é obrigatória.", nameof(idempotencyKey));
         }
 
-        StockOperationPolicyResult policy = await stockPolicy.CanConfirmAsync(cancellationToken);
-        if (!policy.IsAllowed)
+        InventoryImportStoreContext context = await GetContextAsync(actor, cancellationToken);
+        string normalizedKey = idempotencyKey.Trim();
+        InventoryImportConfirmationResult? repeated = await store.GetConfirmationResultAsync(
+            context.PharmacyId,
+            importId,
+            normalizedKey,
+            cancellationToken);
+        if (repeated is not null)
         {
-            throw new StockOperationBlockedException(policy.Code ?? "STOCK_CONFIRMATION_BLOCKED");
+            return repeated;
         }
 
-        InventoryImportStoreContext context = await GetContextAsync(actor, cancellationToken);
+        LicensedOperationPolicyResult policy = await licensedOperationPolicy.CanCreateAsync(cancellationToken);
+        if (!policy.IsAllowed)
+        {
+            throw new StockOperationBlockedException(policy.Code ?? "LICENSE_OPERATION_BLOCKED");
+        }
+
         return await store.ConfirmAsync(
             context,
             actor.UserId,
             importId,
-            idempotencyKey.Trim(),
+            normalizedKey,
             clock.GetCurrentInstant().Value,
             cancellationToken);
     }

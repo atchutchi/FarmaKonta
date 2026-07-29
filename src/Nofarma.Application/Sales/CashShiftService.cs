@@ -1,4 +1,5 @@
 using Nofarma.Application.Abstractions;
+using Nofarma.Application.Licensing;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Application.Inventory;
@@ -12,7 +13,7 @@ namespace Nofarma.Application.Sales;
 public sealed class CashShiftService(
     ICashShiftStore store,
     AuthorizationService authorization,
-    IStockOperationPolicy stockPolicy,
+    ILicensedOperationPolicy licensedOperationPolicy,
     IUtcClock clock)
 {
     private const int MaxConcurrencyAttempts = 3;
@@ -335,12 +336,12 @@ public sealed class CashShiftService(
     private async Task EnsureNewOperationAllowedAsync(
         CancellationToken cancellationToken)
     {
-        StockOperationPolicyResult policy = await stockPolicy.CanConfirmAsync(cancellationToken)
+        LicensedOperationPolicyResult policy = await licensedOperationPolicy.CanCreateAsync(cancellationToken)
             .ConfigureAwait(false);
         if (!policy.IsAllowed)
         {
             throw new CashShiftOperationBlockedException(
-                policy.Code ?? "CASH_OPERATION_BLOCKED");
+                policy.Code ?? "LICENSE_OPERATION_BLOCKED");
         }
     }
 

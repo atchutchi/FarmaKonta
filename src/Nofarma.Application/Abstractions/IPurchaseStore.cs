@@ -43,6 +43,11 @@ public interface IPurchaseStore
         AuditEvent auditEvent,
         CancellationToken cancellationToken);
 
+    Task<PurchaseReceiptDetails?> GetReceiptResultAsync(
+        EntityId pharmacyId,
+        string idempotencyKey,
+        CancellationToken cancellationToken);
+
     Task<PurchaseReceiptDetails> ConfirmReceiptAsync(
         PurchaseActorContext context,
         ConfirmPurchaseReceiptCommand command,

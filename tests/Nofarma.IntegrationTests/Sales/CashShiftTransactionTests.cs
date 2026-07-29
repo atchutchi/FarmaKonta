@@ -7,6 +7,7 @@ using Nofarma.Application.Abstractions;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Application.Inventory;
+using Nofarma.Application.Licensing;
 using Nofarma.Application.Sales;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Common;
@@ -1136,11 +1137,11 @@ public sealed class CashShiftTransactionTests
             public UtcInstant GetCurrentInstant() => Now;
         }
 
-        private sealed class AllowedStockPolicy : IStockOperationPolicy
+        private sealed class AllowedStockPolicy : ILicensedOperationPolicy
         {
-            public Task<StockOperationPolicyResult> CanConfirmAsync(
+            public Task<LicensedOperationPolicyResult> CanCreateAsync(
                 CancellationToken cancellationToken) => Task.FromResult(
-                    new StockOperationPolicyResult(true, null));
+                    new LicensedOperationPolicyResult(true, null));
         }
     }
 }

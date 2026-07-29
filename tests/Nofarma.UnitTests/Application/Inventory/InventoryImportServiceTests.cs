@@ -3,6 +3,7 @@ using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Application.Inventory;
 using Nofarma.Application.Inventory.Import;
+using Nofarma.Application.Licensing;
 using Nofarma.Domain.Catalog;
 using Nofarma.Domain.Common;
 using Nofarma.Domain.Identity;
@@ -77,12 +78,58 @@ public sealed class InventoryImportServiceTests
             TestContext.Current.CancellationToken));
     }
 
-    private static InventoryImportService CreateService(Store store, IReadOnlyList<string?> cells) => new(
+    [Fact]
+    public async Task ExistingConfirmationReturnsBeforeBlockedLicenceAndWithoutAnotherWrite()
+    {
+        var store = new Store([])
+        {
+            ExistingConfirmation = new InventoryImportConfirmationResult(
+                EntityId.New(), 1, 3, true)
+        };
+        InventoryImportService service = CreateService(
+            store,
+            ["P-001", "", "Produto", "Unidade", "1"],
+            allowed: false);
+
+        InventoryImportConfirmationResult result = await service.ConfirmAsync(
+            Session(UserRole.Administrator),
+            store.ExistingConfirmation.ImportId,
+            "confirm-1",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(store.ExistingConfirmation, result);
+        Assert.Equal(0, store.ConfirmWrites);
+    }
+
+    [Fact]
+    public async Task NewConfirmationIsBlockedWithoutLicenceBeforeTheStoreWrite()
+    {
+        var store = new Store([]);
+        InventoryImportService service = CreateService(
+            store,
+            ["P-001", "", "Produto", "Unidade", "1"],
+            allowed: false);
+
+        StockOperationBlockedException error = await Assert.ThrowsAsync<StockOperationBlockedException>(
+            () => service.ConfirmAsync(
+                Session(UserRole.Administrator),
+                EntityId.New(),
+                "confirm-1",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal("LICENSE_MISSING", error.Code);
+        Assert.Equal(0, store.ConfirmWrites);
+    }
+
+    private static InventoryImportService CreateService(
+        Store store,
+        IReadOnlyList<string?> cells,
+        bool allowed = true) => new(
         new Reader(cells),
         store,
         new ErrorWriter(),
         new AuthorizationService(new Clock()),
-        new Policy(),
+        new Policy(allowed),
         new Clock());
 
     private static CreateInventoryImportDraftRequest Request(bool includeType = false)
@@ -117,12 +164,15 @@ public sealed class InventoryImportServiceTests
         public Task<IReadOnlyList<ExistingImportProduct>> FindProductsAsync(EntityId pharmacyId, IReadOnlyCollection<string> barcodes, IReadOnlyCollection<string> internalCodes, CancellationToken cancellationToken) => Task.FromResult(products);
         public Task<InventoryImportDraft> SaveDraftAsync(InventoryImportStoreContext context, EntityId userId, string fileName, string fileHash, string? worksheetName, IReadOnlyList<InventoryImportDraftRow> rows, DateTimeOffset createdAtUtc, CancellationToken cancellationToken) => Task.FromResult(new InventoryImportDraft(EntityId.New(), fileName, worksheetName, InventoryImportStatus.Draft, rows.Count, rows.Count(row => row.Status == InventoryImportRowStatus.Valid), rows.Count(row => row.Status == InventoryImportRowStatus.Blocked), rows));
         public Task<InventoryImportDraft?> GetDraftAsync(EntityId pharmacyId, EntityId importId, CancellationToken cancellationToken) => Task.FromResult<InventoryImportDraft?>(null);
+        public InventoryImportConfirmationResult? ExistingConfirmation { get; set; }
+        public int ConfirmWrites { get; private set; }
+        public Task<InventoryImportConfirmationResult?> GetConfirmationResultAsync(EntityId pharmacyId, EntityId importId, string idempotencyKey, CancellationToken cancellationToken) => Task.FromResult(ExistingConfirmation);
         public Task<InventoryImportDraft> UpdateRowAsync(EntityId pharmacyId, EntityId importId, InventoryImportDraftRow row, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Task<InventoryImportConfirmationResult> ConfirmAsync(InventoryImportStoreContext context, EntityId userId, EntityId importId, string idempotencyKey, DateTimeOffset confirmedAtUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<InventoryImportConfirmationResult> ConfirmAsync(InventoryImportStoreContext context, EntityId userId, EntityId importId, string idempotencyKey, DateTimeOffset confirmedAtUtc, CancellationToken cancellationToken) { ConfirmWrites++; throw new NotSupportedException(); }
         public Task<IReadOnlyList<InventoryImportError>> GetErrorsAsync(EntityId pharmacyId, EntityId importId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<InventoryImportError>>([]);
     }
 
     private sealed class ErrorWriter : IInventoryImportErrorWriter { public Task WriteAsync(Stream destination, IReadOnlyList<InventoryImportError> errors, CancellationToken cancellationToken = default) => Task.CompletedTask; }
     private sealed class Clock : IUtcClock { public UtcInstant GetCurrentInstant() => Now; }
-    private sealed class Policy : IStockOperationPolicy { public Task<StockOperationPolicyResult> CanConfirmAsync(CancellationToken cancellationToken) => Task.FromResult(new StockOperationPolicyResult(true, null)); }
+    private sealed class Policy(bool allowed) : ILicensedOperationPolicy { public Task<LicensedOperationPolicyResult> CanCreateAsync(CancellationToken cancellationToken) => Task.FromResult(new LicensedOperationPolicyResult(allowed, allowed ? null : "LICENSE_MISSING")); }
 }

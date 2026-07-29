@@ -55,6 +55,20 @@ public sealed class SqliteInventoryStore(
             .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<StockConfirmationResult?> GetIdempotentResultAsync(
+        EntityId pharmacyId,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new NofarmaDbContext(options);
+        StockMovementRecord? existing = await context.StockMovements.AsNoTracking()
+            .SingleOrDefaultAsync(
+                record => record.PharmacyId == pharmacyId.Value &&
+                    record.IdempotencyKey == idempotencyKey.Trim(),
+                cancellationToken).ConfigureAwait(false);
+        return existing is null ? null : MapResult(existing);
+    }
+
     public async Task<StockConfirmationResult> ConfirmAsync(
         InventoryActorContext context,
         InventoryConfirmation confirmation,

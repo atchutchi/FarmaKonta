@@ -10,6 +10,7 @@ using Nofarma.Application.Identity.Setup;
 using Nofarma.Application.Identity.Users;
 using Nofarma.Application.Inventory;
 using Nofarma.Application.Inventory.Import;
+using Nofarma.Application.Licensing;
 using Nofarma.Application.Purchasing;
 using Nofarma.Application.Sales;
 using Nofarma.Application.Supply;
@@ -31,6 +32,9 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         databasePath ??= LocalDatabasePath.GetDefault();
+        string licenseSecretsDirectory = secretsDirectory ?? Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(databasePath))!,
+            "licensing-secrets");
         string connectionString = LocalDatabasePath.BuildConnectionString(databasePath);
         var options = new DbContextOptionsBuilder<NofarmaDbContext>()
             .UseSqlite(connectionString)
@@ -55,12 +59,29 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICashShiftStore, SqliteCashShiftStore>();
         services.AddSingleton<IInventoryFileReader, InventoryFileReader>();
         services.AddSingleton<IInventoryImportErrorWriter, OpenXmlInventoryImportErrorWriter>();
-        services.AddSingleton<IStockOperationPolicy, InstallationStockOperationPolicy>();
+        services.AddSingleton<ILicenseStore, SqliteLicenseStore>();
+        services.AddSingleton<ILicenseContextStore, SqliteLicenseContextStore>();
+        services.AddSingleton(new TrustedLicenseKeyRegistry(
+            LicenseBuildChannel.Unlicensed,
+            Array.Empty<KeyValuePair<string, ReadOnlyMemory<byte>>>()));
+        services.AddSingleton<ILicenseDocumentVerifier, EcdsaLicenseDocumentVerifier>();
+        services.AddSingleton<IDeviceLicenseIdentityStore>(_ =>
+            new WindowsDeviceLicenseIdentityStore(
+                licenseSecretsDirectory,
+                channel: LicenseBuildChannel.Unlicensed));
+        services.AddSingleton<ILicenseClockCheckpoint>(_ =>
+            new WindowsLicenseClockCheckpoint(
+                licenseSecretsDirectory,
+                channel: LicenseBuildChannel.Unlicensed));
         services.AddSingleton<ICredentialPepperStore>(
             new WindowsCredentialPepperStore(secretsDirectory));
         services.AddSingleton<ICredentialHasher, Pbkdf2CredentialHasher>();
         services.AddSingleton<IRecoveryCodeGenerator, SecureRecoveryCodeGenerator>();
         services.AddSingleton<IUtcClock, SystemUtcClock>();
+        services.AddSingleton<LicenseService>();
+        services.AddSingleton<ILicenseStatusProvider>(provider =>
+            provider.GetRequiredService<LicenseService>());
+        services.AddSingleton<ILicensedOperationPolicy, LicenseOperationPolicy>();
         services.AddSingleton<CurrentSession>();
         services.AddSingleton<AuthorizationService>();
         services.AddTransient<SetupService>();

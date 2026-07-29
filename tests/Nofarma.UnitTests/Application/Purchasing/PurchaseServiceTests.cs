@@ -2,6 +2,7 @@ using Nofarma.Application.Abstractions;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Application.Inventory;
+using Nofarma.Application.Licensing;
 using Nofarma.Application.Purchasing;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Common;
@@ -84,8 +85,29 @@ public sealed class PurchaseServiceTests
                 ValidReceiptRequest(),
                 CancellationToken.None));
 
-        Assert.Equal("LICENSE_REQUIRED", exception.Code);
+        Assert.Equal("LICENSE_MISSING", exception.Code);
         Assert.Null(store.LastReceipt);
+    }
+
+    [Fact]
+    public async Task ExistingReceiptReturnsBeforeBlockedLicenceAndWithoutAnotherWrite()
+    {
+        var store = new PurchaseStore
+        {
+            ExistingReceipt = new PurchaseReceiptDetails(
+                EntityId.New(), EntityId.New(), "FR-1", FixedClock.Now, 2,
+                PurchaseOrderStatus.Received)
+        };
+        PurchaseService service = CreateService(store, allowed: false);
+
+        PurchaseReceiptDetails result = await service.ConfirmReceiptAsync(
+            Session(UserRole.Manager),
+            store.ExistingReceipt.PurchaseId,
+            ValidReceiptRequest(),
+            CancellationToken.None);
+
+        Assert.Equal(store.ExistingReceipt, result);
+        Assert.Equal(0, store.ReceiptWrites);
     }
 
     [Fact]
@@ -191,6 +213,10 @@ public sealed class PurchaseServiceTests
 
         public ConfirmPurchaseReceiptCommand? LastReceipt { get; private set; }
 
+        public PurchaseReceiptDetails? ExistingReceipt { get; set; }
+
+        public int ReceiptWrites { get; private set; }
+
         public Task<PurchaseActorContext?> GetContextAsync(
             EntityId actorUserId,
             CancellationToken cancellationToken) => Task.FromResult<PurchaseActorContext?>(
@@ -233,12 +259,18 @@ public sealed class PurchaseServiceTests
                     null,
                     1)]);
 
+        public Task<PurchaseReceiptDetails?> GetReceiptResultAsync(
+            EntityId pharmacyId,
+            string idempotencyKey,
+            CancellationToken cancellationToken) => Task.FromResult(ExistingReceipt);
+
         public Task<PurchaseReceiptDetails> ConfirmReceiptAsync(
             PurchaseActorContext context,
             ConfirmPurchaseReceiptCommand command,
             AuditEvent auditEvent,
             CancellationToken cancellationToken)
         {
+            ReceiptWrites++;
             LastReceipt = command;
             LastAudit = auditEvent;
             return Task.FromResult(new PurchaseReceiptDetails(
@@ -295,11 +327,11 @@ public sealed class PurchaseServiceTests
             []);
     }
 
-    private sealed class StockPolicy(bool allowed) : IStockOperationPolicy
+    private sealed class StockPolicy(bool allowed) : ILicensedOperationPolicy
     {
-        public Task<StockOperationPolicyResult> CanConfirmAsync(
+        public Task<LicensedOperationPolicyResult> CanCreateAsync(
             CancellationToken cancellationToken) => Task.FromResult(
-                new StockOperationPolicyResult(allowed, allowed ? null : "LICENSE_REQUIRED"));
+                new LicensedOperationPolicyResult(allowed, allowed ? null : "LICENSE_MISSING"));
     }
 
     private sealed class FixedClock : IUtcClock
