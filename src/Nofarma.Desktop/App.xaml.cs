@@ -27,22 +27,14 @@ public partial class App : Microsoft.UI.Xaml.Application
         DesktopLicenseConfiguration licenseConfiguration =
             DesktopLicenseConfiguration.LoadCurrent();
         string dataDirectory = Path.Combine(licenseConfiguration.BaseDirectory, "data");
-        string credentialSecretsDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ABIPTOM",
-            "Nofarma",
-            "secrets");
-        string licensingSecretsDirectory = Path.Combine(
-            licenseConfiguration.BaseDirectory,
-            "licensing-secrets");
         Directory.CreateDirectory(dataDirectory);
         _services = new ServiceCollection()
             .AddNofarmaLocalIdentity(
                 databasePath: Path.Combine(dataDirectory, "nofarma.db"),
-                credentialSecretsDirectory: credentialSecretsDirectory,
+                credentialSecretsDirectory: licenseConfiguration.CredentialSecretsDirectory,
                 licenseChannel: licenseConfiguration.Channel,
                 trustedPublicKeys: licenseConfiguration.TrustedPublicKeys,
-                licensingSecretsDirectory: licensingSecretsDirectory)
+                licensingSecretsDirectory: licenseConfiguration.LicensingSecretsDirectory)
             .AddNofarmaDesktop(licenseConfiguration)
             .BuildServiceProvider(validateScopes: true);
     }

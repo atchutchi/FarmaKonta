@@ -26,6 +26,10 @@ Foram observados quatro ciclos RED adicionais antes da respectiva produção:
    configuração compilada dos canais ainda não existia.
 4. O teste de composição explícita QA falhou com `CS1501` porque
    `AddNofarmaLocalIdentity` ainda não aceitava canal e chaves públicas.
+5. A correcção de isolamento do pepper por canal começou com
+   `CredentialSecretsFollowTheBuildChannelDirectoryWithoutBreakingCommercialCompatibility`.
+   O compilador falhou com `CS1061` porque os caminhos de segredos calculados
+   por canal ainda não faziam parte de `DesktopLicenseConfiguration`.
 
 ## Implementation
 
@@ -60,8 +64,10 @@ argumento de runtime.
 
 ## Correcções após revisão independente
 
-O directório histórico de credenciais voltou a ser
-`%LOCALAPPDATA%\ABIPTOM\Nofarma\secrets`. A composição recebe agora, de forma
+Os canais Unlicensed e Commercial preservam o directório histórico de
+credenciais `%LOCALAPPDATA%\ABIPTOM\Nofarma\secrets`. O canal QA mantém o seu
+isolamento em `%LOCALAPPDATA%\ABIPTOM\Nofarma-QA\secrets`. A configuração
+Desktop calcula estes caminhos por canal e a composição recebe, de forma
 explícita e independente, `credentialSecretsDirectory` e
 `licensingSecretsDirectory`. O teste de upgrade cria uma instalação, uma
 palavra-passe, um PIN e um código de recuperação, cria também a identidade de
@@ -109,6 +115,9 @@ porque não bloqueia uso, acessibilidade ou conformidade com o âmbito.
 10. `dotnet format --verify-no-changes` limitado aos ficheiros C# desta tarefa:
     aprovado.
 11. Build Desktop Release `QA`: 0 avisos e 0 erros.
+12. Cálculo focado dos caminhos de segredos por canal: 5 testes aprovados.
+13. Build Desktop Release `Unlicensed` após a correcção por canal: 0 avisos e
+    0 erros.
 
 A primeira execução da suite completa expôs dois resultados. O teste de
 superfície detectou a alteração acidental do limiar adaptativo de 1450 para

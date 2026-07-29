@@ -32,6 +32,12 @@ public sealed class DesktopLicenseConfiguration
         "ABIPTOM",
         ApplicationDirectoryName);
 
+    public string CredentialSecretsDirectory => Path.Combine(BaseDirectory, "secrets");
+
+    public string LicensingSecretsDirectory => Path.Combine(
+        BaseDirectory,
+        "licensing-secrets");
+
     public static DesktopLicenseConfiguration LoadCurrent()
     {
 #if NOFARMA_LICENSE_QA

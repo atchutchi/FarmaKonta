@@ -53,4 +53,39 @@ public sealed class DesktopLicenseConfigurationTests
         Assert.Throws<InvalidOperationException>(() =>
             DesktopLicenseConfiguration.Create(LicenseBuildChannel.Unlicensed, encoded));
     }
+
+    [Fact]
+    public void CredentialSecretsFollowTheBuildChannelDirectoryWithoutBreakingCommercialCompatibility()
+    {
+        using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        string encoded = Convert.ToBase64String(key.ExportSubjectPublicKeyInfo());
+        DesktopLicenseConfiguration unlicensed =
+            DesktopLicenseConfiguration.Create(LicenseBuildChannel.Unlicensed, null);
+        DesktopLicenseConfiguration qa =
+            DesktopLicenseConfiguration.Create(LicenseBuildChannel.Qa, encoded);
+        DesktopLicenseConfiguration commercial =
+            DesktopLicenseConfiguration.Create(LicenseBuildChannel.Commercial, encoded);
+
+        Assert.Equal(
+            Path.Combine(unlicensed.BaseDirectory, "secrets"),
+            unlicensed.CredentialSecretsDirectory);
+        Assert.Equal(
+            Path.Combine(qa.BaseDirectory, "secrets"),
+            qa.CredentialSecretsDirectory);
+        Assert.Equal(
+            Path.Combine(commercial.BaseDirectory, "secrets"),
+            commercial.CredentialSecretsDirectory);
+        Assert.NotEqual(
+            unlicensed.CredentialSecretsDirectory,
+            qa.CredentialSecretsDirectory);
+        Assert.Equal(
+            unlicensed.CredentialSecretsDirectory,
+            commercial.CredentialSecretsDirectory);
+        Assert.Equal(
+            Path.Combine(qa.BaseDirectory, "licensing-secrets"),
+            qa.LicensingSecretsDirectory);
+        Assert.NotEqual(
+            qa.CredentialSecretsDirectory,
+            qa.LicensingSecretsDirectory);
+    }
 }
