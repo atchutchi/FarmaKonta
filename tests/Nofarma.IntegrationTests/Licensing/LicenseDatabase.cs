@@ -99,9 +99,10 @@ internal sealed class LicenseDatabase : IAsyncDisposable
     internal static async Task<LicenseDatabase> CreateWithLicenseAsync(long sequence)
     {
         LicenseDatabase database = await CreateAsync();
+        VerifiedLicense license = database.Verified(sequence);
         await database.Store.ReplaceAsync(
-            database.Verified(sequence),
-            database.Audit("license.imported"),
+            license,
+            database.Audit("license.imported", grant: license.Grant),
             TestContext.Current.CancellationToken);
         return database;
     }
@@ -135,7 +136,11 @@ internal sealed class LicenseDatabase : IAsyncDisposable
             UtcInstant.From(new DateTimeOffset(2026, 8, 31, 23, 59, 59, TimeSpan.Zero)),
             UtcInstant.From(new DateTimeOffset(2026, 9, 7, 23, 59, 59, TimeSpan.Zero)));
 
-    internal AuditEvent Audit(string action, Guid? id = null, string detailsJson = "{}") =>
+    internal AuditEvent Audit(
+        string action,
+        Guid? id = null,
+        string? detailsJson = null,
+        LicenseGrant? grant = null) =>
         new(
             new EntityId(id ?? Guid.NewGuid()),
             new EntityId(PharmacyId),
@@ -147,7 +152,7 @@ internal sealed class LicenseDatabase : IAsyncDisposable
             UtcInstant.From(Now),
             AuditOutcome.Success,
             null,
-            detailsJson);
+            detailsJson ?? LicenseAuditMetadata.Serialize(grant ?? Grant(sequence: 1)));
 
     internal async Task<long?> CurrentSequenceAsync()
     {
@@ -177,14 +182,8 @@ internal sealed class LicenseDatabase : IAsyncDisposable
     public ValueTask DisposeAsync()
     {
         SqliteConnection.ClearAllPools();
-        string fullDirectory = Path.GetFullPath(_directory)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        string fullTemp = Path.GetFullPath(Path.GetTempPath())
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
-        string leaf = Path.GetFileName(fullDirectory);
-        if (!fullDirectory.StartsWith(fullTemp, StringComparison.OrdinalIgnoreCase)
-            || !leaf.StartsWith(DirectoryPrefix, StringComparison.Ordinal))
+        string fullDirectory = Path.GetFullPath(_directory);
+        if (!IsSafeTestDirectory(fullDirectory, DirectoryPrefix))
         {
             throw new InvalidOperationException("The licensing test directory is not safe to remove.");
         }
@@ -195,6 +194,18 @@ internal sealed class LicenseDatabase : IAsyncDisposable
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    internal static bool IsSafeTestDirectory(string directory, string requiredPrefix)
+    {
+        string fullDirectory = Path.GetFullPath(directory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string fullTemp = Path.GetFullPath(Path.GetTempPath())
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        string leaf = Path.GetFileName(fullDirectory);
+        return fullDirectory.StartsWith(fullTemp, StringComparison.OrdinalIgnoreCase)
+            && leaf.StartsWith(requiredPrefix, StringComparison.Ordinal);
     }
 
     private static void SeedInstallation(

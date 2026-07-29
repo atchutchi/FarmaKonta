@@ -15,6 +15,19 @@ public sealed class SqliteLicenseStore(
 {
     private const int MaximumDocumentBytes = 65_536;
 
+    public async Task<LicenseStoreReplaceResult> ReplaceAsync(
+        VerifiedLicense license,
+        AuditEvent audit,
+        CancellationToken cancellationToken)
+    {
+        StoredLicense? current = await GetAsync(cancellationToken).ConfigureAwait(false);
+        LicenseStorePrecondition precondition = current is null
+            ? LicenseStorePrecondition.ExpectedAbsent()
+            : LicenseStorePrecondition.Matching(current.ConcurrencyToken);
+        return await ReplaceAsync(license, audit, precondition, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task<StoredLicense?> GetAsync(CancellationToken cancellationToken)
     {
         await using var db = new NofarmaDbContext(options);
@@ -35,23 +48,20 @@ public sealed class SqliteLicenseStore(
         byte[] expectedHash = SHA256.HashData(document);
         bool validHash = record.DocumentHash.Length == expectedHash.Length
             && CryptographicOperations.FixedTimeEquals(record.DocumentHash, expectedHash);
+        var stored = new StoredLicense(document, expectedHash, validHash);
         CryptographicOperations.ZeroMemory(expectedHash);
-        if (!validHash)
-        {
-            CryptographicOperations.ZeroMemory(document);
-            throw new LicensePersistenceIntegrityException();
-        }
-
-        return new StoredLicense(document);
+        return stored;
     }
 
-    public async Task ReplaceAsync(
+    public async Task<LicenseStoreReplaceResult> ReplaceAsync(
         VerifiedLicense license,
         AuditEvent audit,
+        LicenseStorePrecondition precondition,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(license);
         ArgumentNullException.ThrowIfNull(audit);
+        ArgumentNullException.ThrowIfNull(precondition);
         byte[] document = license.Document.ToArray();
         ValidateBeforeTransaction(license, audit, document);
         byte[] hash = SHA256.HashData(document);
@@ -76,11 +86,37 @@ public sealed class SqliteLicenseStore(
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (current is not null
-            && string.Equals(audit.Action, "license.renewed", StringComparison.Ordinal)
-            && license.Grant.Sequence <= current.Sequence)
+        byte[]? currentToken = current is null
+            ? null
+            : SHA256.HashData(current.DocumentBytes);
+        bool sameDocument = current is not null
+            && current.DocumentBytes.AsSpan().SequenceEqual(document);
+        bool preconditionMatches = current is null
+            ? precondition.ExpectsAbsence
+            : !precondition.ExpectsAbsence
+                && CryptographicOperations.FixedTimeEquals(
+                    currentToken!,
+                    precondition.ExpectedToken.Span);
+
+        if (sameDocument)
         {
-            throw new LicenseImportException("LICENSE_ROLLBACK");
+            bool storedHashValid = current!.DocumentHash.Length == hash.Length
+                && CryptographicOperations.FixedTimeEquals(current.DocumentHash, hash);
+            if (!storedHashValid)
+            {
+                current.DocumentHash = hash;
+                installation.Status = (int)InstallationStatus.Active;
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return LicenseStoreReplaceResult.AlreadyCurrent;
+        }
+
+        if (!preconditionMatches)
+        {
+            return LicenseStoreReplaceResult.Conflict;
         }
 
         if (current is null)
@@ -99,6 +135,7 @@ public sealed class SqliteLicenseStore(
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return LicenseStoreReplaceResult.Applied;
     }
 
     private static void ValidateBeforeTransaction(
@@ -130,7 +167,10 @@ public sealed class SqliteLicenseStore(
                 StringComparison.Ordinal)
             && audit.Outcome == AuditOutcome.Success
             && audit.DiagnosticCode is null
-            && string.Equals(audit.DetailsJson, "{}", StringComparison.Ordinal);
+            && string.Equals(
+                audit.DetailsJson,
+                LicenseAuditMetadata.Serialize(license.Grant),
+                StringComparison.Ordinal);
         if (!validAudit)
         {
             throw new ArgumentException(

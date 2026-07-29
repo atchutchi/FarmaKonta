@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using Nofarma.Application.Licensing;
 using Nofarma.Domain.Common;
 using Nofarma.Domain.Licensing;
@@ -33,7 +34,7 @@ internal static class LicenseTestData
         Stored(Active(sequence), document);
 
     internal static StoredLicense Stored(LicenseGrant grant, ReadOnlyMemory<byte> document) =>
-        new(document);
+        new(document, SHA256.HashData(document.Span), hasValidIntegrity: true);
 
     internal static UtcInstant Instant(string value) =>
         UtcInstant.From(DateTimeOffset.Parse(

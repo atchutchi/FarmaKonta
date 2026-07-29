@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Nofarma.Application.Abstractions;
 using Nofarma.Application.Licensing;
 using Nofarma.Domain.Auditing;
@@ -30,28 +31,22 @@ internal sealed class RecordingLicenseStore : ILicenseStore
         return Task.FromResult(_current);
     }
 
-    public Task ReplaceAsync(
+    public Task<LicenseStoreReplaceResult> ReplaceAsync(
         VerifiedLicense license,
         AuditEvent audit,
+        LicenseStorePrecondition precondition,
         CancellationToken cancellationToken)
     {
         _events?.Add("license.replace");
         ReplaceCalls++;
         LastAudit = audit;
-        _current = new StoredLicense(license.Document);
-        return Task.CompletedTask;
+        byte[] document = license.Document.ToArray();
+        _current = new StoredLicense(
+            document,
+            SHA256.HashData(document),
+            hasValidIntegrity: true);
+        return Task.FromResult(LicenseStoreReplaceResult.Applied);
     }
-}
-
-internal sealed class ThrowingLicenseStore(Exception exception) : ILicenseStore
-{
-    public Task<StoredLicense?> GetAsync(CancellationToken cancellationToken) =>
-        Task.FromException<StoredLicense?>(exception);
-
-    public Task ReplaceAsync(
-        VerifiedLicense license,
-        AuditEvent audit,
-        CancellationToken cancellationToken) => Task.FromException(exception);
 }
 
 internal sealed class RecoverableIntegrityLicenseStore : ILicenseStore
@@ -61,16 +56,62 @@ internal sealed class RecoverableIntegrityLicenseStore : ILicenseStore
     internal StoredLicense? Current { get; private set; }
 
     public Task<StoredLicense?> GetAsync(CancellationToken cancellationToken) =>
-        Task.FromException<StoredLicense?>(new LicensePersistenceIntegrityException());
+        Task.FromResult<StoredLicense?>(new StoredLicense(
+            new byte[] { 201, 202, 203 },
+            new byte[32],
+            hasValidIntegrity: false));
 
-    public Task ReplaceAsync(
+    public Task<LicenseStoreReplaceResult> ReplaceAsync(
         VerifiedLicense license,
         AuditEvent audit,
+        LicenseStorePrecondition precondition,
         CancellationToken cancellationToken)
     {
         ReplaceCalls++;
-        Current = new StoredLicense(license.Document);
-        return Task.CompletedTask;
+        byte[] document = license.Document.ToArray();
+        Current = new StoredLicense(
+            document,
+            SHA256.HashData(document),
+            hasValidIntegrity: true);
+        return Task.FromResult(LicenseStoreReplaceResult.Applied);
+    }
+}
+
+internal sealed class ScriptedLicenseStore(
+    IEnumerable<StoredLicense?> reads,
+    IEnumerable<LicenseStoreReplaceResult> replacements) : ILicenseStore
+{
+    private readonly Queue<StoredLicense?> _reads = new(reads);
+    private readonly Queue<LicenseStoreReplaceResult> _replacements = new(replacements);
+
+    internal int ReplaceCalls { get; private set; }
+
+    internal List<LicenseStorePrecondition> Preconditions { get; } = [];
+
+    public Task<StoredLicense?> GetAsync(CancellationToken cancellationToken)
+    {
+        if (_reads.Count == 0)
+        {
+            throw new InvalidOperationException("No scripted license read remains.");
+        }
+
+        return Task.FromResult(_reads.Dequeue());
+    }
+
+    public Task<LicenseStoreReplaceResult> ReplaceAsync(
+        VerifiedLicense license,
+        AuditEvent audit,
+        LicenseStorePrecondition precondition,
+        CancellationToken cancellationToken)
+    {
+        ReplaceCalls++;
+        Preconditions.Add(precondition);
+        if (_replacements.Count == 0)
+        {
+            throw new InvalidOperationException("No scripted replacement remains.");
+        }
+
+        return Task.FromResult(_replacements.Dequeue());
     }
 }
 

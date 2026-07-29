@@ -14,21 +14,20 @@ public sealed class LicenseService(
     ILicenseClockCheckpoint clockCheckpoint,
     IUtcClock clock)
 {
+    private const int MaximumReplaceAttempts = 3;
+
     public async Task<LicenseStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
         LicenseContext context = await GetContextAsync(cancellationToken).ConfigureAwait(false);
-        StoredLicense? stored;
-        try
-        {
-            stored = await store.GetAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (LicensePersistenceIntegrityException)
-        {
-            return InvalidStatus();
-        }
+        StoredLicense? stored = await store.GetAsync(cancellationToken).ConfigureAwait(false);
         if (stored is null)
         {
             return MissingStatus();
+        }
+
+        if (!stored.HasValidIntegrity)
+        {
+            return InvalidStatus();
         }
 
         try
@@ -74,28 +73,6 @@ public sealed class LicenseService(
         DeviceLicenseIdentity device = deviceIdentityStore.GetOrCreate(
             context.PharmacyId,
             context.DeviceId);
-        StoredLicense? current;
-        try
-        {
-            current = await store.GetAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (LicensePersistenceIntegrityException)
-        {
-            current = null;
-        }
-        VerifiedLicense? trustedCurrent = null;
-        if (current is not null)
-        {
-            LicenseVerification currentVerification = verifier.Verify(
-                current.Document,
-                device,
-                context);
-            if (currentVerification.IsValid && currentVerification.License is not null)
-            {
-                trustedCurrent = currentVerification.License;
-            }
-        }
-
         LicenseVerification verification = verifier.Verify(document, device, context);
         if (!verification.IsValid || verification.License is null)
         {
@@ -106,60 +83,68 @@ public sealed class LicenseService(
         {
             Document = document
         };
-        if (trustedCurrent is not null &&
-            current is not null &&
-            document.AsSpan().SequenceEqual(current.Document.Span))
-        {
-            return Evaluate(
-                trustedCurrent.Grant,
-                CreateBinding(context, device, trustedCurrent.Channel));
-        }
-
-        if (trustedCurrent is not null &&
-            verifiedLicense.Grant.Sequence <= trustedCurrent.Grant.Sequence)
-        {
-            throw new LicenseImportException("LICENSE_ROLLBACK");
-        }
-
         UtcInstant now = clock.GetCurrentInstant();
         LicenseClockBinding binding = CreateBinding(
             context,
             device,
             verifiedLicense.Channel);
-        if (trustedCurrent is null)
+        for (int attempt = 0; attempt < MaximumReplaceAttempts; attempt++)
         {
-            try
+            StoredLicense? current = await store.GetAsync(cancellationToken).ConfigureAwait(false);
+            VerifiedLicense? trustedCurrent = VerifyCurrent(current, device, context);
+            bool sameDocument = current is not null
+                && document.AsSpan().SequenceEqual(current.Document.Span);
+            if (trustedCurrent is not null
+                && current is not null
+                && current.HasValidIntegrity
+                && sameDocument)
             {
-                clockCheckpoint.Initialize(binding, now);
+                return Evaluate(
+                    trustedCurrent.Grant,
+                    CreateBinding(context, device, trustedCurrent.Channel));
             }
-            catch (Exception exception) when (IsProtectedStateFailure(exception))
+
+            if (trustedCurrent is not null
+                && !sameDocument
+                && verifiedLicense.Grant.Sequence <= trustedCurrent.Grant.Sequence)
             {
-                throw new LicenseImportException("LICENSE_CLOCK_CHECKPOINT");
+                throw new LicenseImportException("LICENSE_ROLLBACK");
             }
-        }
-        else
-        {
-            LicenseClockCheck checkpoint = CheckFailClosed(binding, now);
-            if (checkpoint.RollbackDetected)
+
+            if (trustedCurrent is null)
             {
-                return EvaluateBlocked(trustedCurrent.Grant);
+                InitializeCheckpoint(binding, now);
+            }
+            else
+            {
+                LicenseClockCheck checkpoint = CheckFailClosed(binding, now);
+                if (checkpoint.RollbackDetected)
+                {
+                    return EvaluateBlocked(trustedCurrent.Grant);
+                }
+            }
+
+            AuditEvent audit = CreateAudit(
+                context,
+                verifiedLicense,
+                now,
+                trustedCurrent is null ? "license.imported" : "license.renewed");
+            LicenseStorePrecondition precondition = current is null
+                ? LicenseStorePrecondition.ExpectedAbsent()
+                : LicenseStorePrecondition.Matching(current.ConcurrencyToken);
+            LicenseStoreReplaceResult result = await store.ReplaceAsync(
+                verifiedLicense,
+                audit,
+                precondition,
+                cancellationToken).ConfigureAwait(false);
+            if (result is LicenseStoreReplaceResult.Applied
+                or LicenseStoreReplaceResult.AlreadyCurrent)
+            {
+                return Evaluate(verifiedLicense.Grant, binding);
             }
         }
 
-        AuditEvent audit = new(
-            EntityId.New(),
-            context.PharmacyId,
-            context.DeviceId,
-            null,
-            trustedCurrent is null ? "license.imported" : "license.renewed",
-            "License",
-            verifiedLicense.Grant.Id.Value.ToString("D"),
-            now,
-            AuditOutcome.Success,
-            null,
-            "{}");
-        await store.ReplaceAsync(verifiedLicense, audit, cancellationToken).ConfigureAwait(false);
-        return Evaluate(verifiedLicense.Grant, binding);
+        throw new LicenseImportException("LICENSE_CONFLICT");
     }
 
     public async Task EnsureNewOperationsAllowedAsync(CancellationToken cancellationToken)
@@ -211,6 +196,53 @@ public sealed class LicenseService(
             context.DeviceId,
             channel,
             device.PublicKeyThumbprint);
+
+    private VerifiedLicense? VerifyCurrent(
+        StoredLicense? current,
+        DeviceLicenseIdentity device,
+        LicenseContext context)
+    {
+        if (current is null)
+        {
+            return null;
+        }
+
+        LicenseVerification currentVerification = verifier.Verify(
+            current.Document,
+            device,
+            context);
+        return currentVerification.IsValid ? currentVerification.License : null;
+    }
+
+    private void InitializeCheckpoint(LicenseClockBinding binding, UtcInstant now)
+    {
+        try
+        {
+            clockCheckpoint.Initialize(binding, now);
+        }
+        catch (Exception exception) when (IsProtectedStateFailure(exception))
+        {
+            throw new LicenseImportException("LICENSE_CLOCK_CHECKPOINT");
+        }
+    }
+
+    private static AuditEvent CreateAudit(
+        LicenseContext context,
+        VerifiedLicense license,
+        UtcInstant now,
+        string action) =>
+        new(
+            EntityId.New(),
+            context.PharmacyId,
+            context.DeviceId,
+            null,
+            action,
+            "License",
+            license.Grant.Id.Value.ToString("D"),
+            now,
+            AuditOutcome.Success,
+            null,
+            LicenseAuditMetadata.Serialize(license.Grant));
 
     private LicenseStatus EvaluateBlocked(LicenseGrant grant)
     {

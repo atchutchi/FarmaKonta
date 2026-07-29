@@ -7,8 +7,9 @@ public interface ILicenseStore
 {
     Task<StoredLicense?> GetAsync(CancellationToken cancellationToken);
 
-    Task ReplaceAsync(
+    Task<LicenseStoreReplaceResult> ReplaceAsync(
         VerifiedLicense license,
         AuditEvent audit,
+        LicenseStorePrecondition precondition,
         CancellationToken cancellationToken);
 }

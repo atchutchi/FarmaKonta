@@ -14,12 +14,57 @@ public sealed class LicenseServiceTests
     public void StoredLicenseDoesNotExposeItsMutableDocumentBuffer()
     {
         byte[] source = [1, 2, 3];
-        var stored = new StoredLicense(source);
+        var stored = Stored(source);
         source[0] = 9;
         Assert.True(MemoryMarshal.TryGetArray(stored.Document, out ArraySegment<byte> exposed));
         exposed.Array![exposed.Offset] = 8;
 
         Assert.Equal(new byte[] { 1, 2, 3 }, stored.Document.ToArray());
+    }
+
+    [Fact]
+    public void StoredLicenseDoesNotExposeItsOpaqueConcurrencyToken()
+    {
+        byte[] document = [1, 2, 3];
+        byte[] token = SHA256.HashData(document);
+        var stored = new StoredLicense(document, token, hasValidIntegrity: true);
+        token[0] ^= 0xff;
+        Assert.True(MemoryMarshal.TryGetArray(
+            stored.ConcurrencyToken,
+            out ArraySegment<byte> exposed));
+        exposed.Array![exposed.Offset] ^= 0xff;
+
+        Assert.Equal(SHA256.HashData(document), stored.ConcurrencyToken.ToArray());
+        Assert.True(stored.HasValidIntegrity);
+    }
+
+    [Fact]
+    public void LicenseAuditMetadataIsCanonicalAndContainsOnlyApprovedFields()
+    {
+        string metadata = LicenseAuditMetadata.Serialize(LicenseTestData.Active(sequence: 7));
+
+        Assert.Equal(
+            "{\"sequence\":7,\"plan\":\"Monthly\",\"validFromUtc\":\"2026-08-01T00:00:00.0000000+00:00\",\"validUntilUtc\":\"2026-08-31T23:59:59.0000000+00:00\"}",
+            metadata);
+        Assert.DoesNotContain("signature", metadata, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("key", metadata, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("thumbprint", metadata, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("hash", metadata, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void StorePreconditionDoesNotExposeItsExpectedToken()
+    {
+        byte[] token = SHA256.HashData([1, 2, 3]);
+        LicenseStorePrecondition precondition = LicenseStorePrecondition.Matching(token);
+        token[0] ^= 0xff;
+        Assert.True(MemoryMarshal.TryGetArray(
+            precondition.ExpectedToken,
+            out ArraySegment<byte> exposed));
+        exposed.Array![exposed.Offset] ^= 0xff;
+
+        Assert.Equal(SHA256.HashData([1, 2, 3]), precondition.ExpectedToken.ToArray());
+        Assert.False(precondition.ExpectsAbsence);
     }
 
     [Fact]
@@ -120,7 +165,6 @@ public sealed class LicenseServiceTests
     {
         var store = new RecordingLicenseStore(existing: LicenseTestData.StoredActive(sequence: 4));
         var verifier = new StubVerifier(
-            LicenseVerification.Valid(LicenseTestData.Active(sequence: 4)),
             LicenseVerification.Invalid("SIGNATURE_INVALID"));
         var service = LicenseServiceTestFactory.Create(store, verifier);
 
@@ -136,8 +180,8 @@ public sealed class LicenseServiceTests
     {
         var store = new RecordingLicenseStore(existing: LicenseTestData.StoredActive(sequence: 4));
         var verifier = new StubVerifier(
-            LicenseVerification.Valid(LicenseTestData.Active(sequence: 4)),
-            LicenseVerification.Valid(LicenseTestData.Active(sequence: 3)));
+            LicenseVerification.Valid(LicenseTestData.Active(sequence: 3)),
+            LicenseVerification.Valid(LicenseTestData.Active(sequence: 4)));
         var service = LicenseServiceTestFactory.Create(store, verifier);
 
         LicenseImportException error = await Assert.ThrowsAsync<LicenseImportException>(
@@ -225,8 +269,8 @@ public sealed class LicenseServiceTests
         var service = LicenseServiceTestFactory.Create(
             store,
             new StubVerifier(
-                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1)),
-                LicenseVerification.Valid(LicenseTestData.Active(sequence: 2))),
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 2)),
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))),
             checkpoint: checkpoint);
 
         LicenseStatus status = await service.ImportAsync(
@@ -266,7 +310,11 @@ public sealed class LicenseServiceTests
         await service.ImportAsync(new LicenseImportRequest(document), CancellationToken.None);
 
         Assert.NotNull(store.LastAudit);
-        Assert.Equal("{}", store.LastAudit!.DetailsJson);
+        Assert.Equal(
+            LicenseAuditMetadata.Serialize(LicenseTestData.Active(sequence: 1)),
+            store.LastAudit!.DetailsJson);
+        Assert.DoesNotContain("signature", store.LastAudit.DetailsJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("key", store.LastAudit.DetailsJson, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -314,7 +362,7 @@ public sealed class LicenseServiceTests
                 channel: "QA",
                 keyId: "trusted-key"));
         var service = LicenseServiceTestFactory.Create(
-            new RecordingLicenseStore(new StoredLicense(persisted)),
+            new RecordingLicenseStore(Stored(persisted)),
             verifier);
 
         LicenseStatus status = await service.GetStatusAsync(CancellationToken.None);
@@ -329,7 +377,7 @@ public sealed class LicenseServiceTests
     {
         var checkpoint = new RecordingLicenseClockCheckpoint();
         var service = LicenseServiceTestFactory.Create(
-            new RecordingLicenseStore(new StoredLicense(new byte[] { 31, 32, 33 })),
+            new RecordingLicenseStore(Stored([31, 32, 33])),
             new StubVerifier(LicenseVerification.Invalid("SIGNATURE_INVALID")),
             checkpoint: checkpoint);
 
@@ -347,7 +395,10 @@ public sealed class LicenseServiceTests
     {
         var identities = new RecordingDeviceLicenseIdentityStore();
         var service = LicenseServiceTestFactory.Create(
-            new ThrowingLicenseStore(new LicensePersistenceIntegrityException()),
+            new RecordingLicenseStore(new StoredLicense(
+                new byte[] { 31, 32, 33 },
+                SHA256.HashData([31, 32, 33]),
+                hasValidIntegrity: false)),
             new StubVerifier(LicenseVerification.Invalid("NOT_USED")),
             identities: identities);
 
@@ -362,12 +413,12 @@ public sealed class LicenseServiceTests
     public async Task ValidImportReplacesAnInvalidPersistedDocumentAsRecovery()
     {
         var store = new RecordingLicenseStore(
-            new StoredLicense(new byte[] { 41, 42, 43 }));
+            Stored([41, 42, 43]));
         var service = LicenseServiceTestFactory.Create(
             store,
             new StubVerifier(
-                LicenseVerification.Invalid("SIGNATURE_INVALID"),
-                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))));
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1)),
+                LicenseVerification.Invalid("SIGNATURE_INVALID")));
 
         LicenseStatus status = await service.ImportAsync(
             new LicenseImportRequest([51, 52, 53]),
@@ -385,7 +436,8 @@ public sealed class LicenseServiceTests
         var service = LicenseServiceTestFactory.Create(
             store,
             new StubVerifier(
-                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))));
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1)),
+                LicenseVerification.Invalid("SIGNATURE_INVALID")));
 
         LicenseStatus status = await service.ImportAsync(
             new LicenseImportRequest([61, 62, 63]),
@@ -395,4 +447,86 @@ public sealed class LicenseServiceTests
         Assert.Equal(1, store.ReplaceCalls);
         Assert.Equal([61, 62, 63], store.Current!.Document.ToArray());
     }
+
+    [Fact]
+    public async Task ConflictReloadsSignedCurrentAndRejectsTheNowOlderCandidate()
+    {
+        byte[] invalidDocument = [71, 72, 73];
+        byte[] currentDocument = [81, 82, 83];
+        var store = new ScriptedLicenseStore(
+            [Stored(invalidDocument), Stored(currentDocument)],
+            [LicenseStoreReplaceResult.Conflict]);
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 2)),
+                LicenseVerification.Invalid("SIGNATURE_INVALID"),
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 3))));
+
+        LicenseImportException error = await Assert.ThrowsAsync<LicenseImportException>(() =>
+            service.ImportAsync(
+                new LicenseImportRequest([91, 92, 93]),
+                CancellationToken.None));
+
+        Assert.Equal("LICENSE_ROLLBACK", error.Code);
+        Assert.Equal(1, store.ReplaceCalls);
+        Assert.Equal(
+            SHA256.HashData(invalidDocument),
+            Assert.Single(store.Preconditions).ExpectedToken.ToArray());
+    }
+
+    [Fact]
+    public async Task SuperiorCandidateRetriesAgainstTheNewObservedTokenAfterConflict()
+    {
+        byte[] firstDocument = [101, 102, 103];
+        byte[] secondDocument = [111, 112, 113];
+        var store = new ScriptedLicenseStore(
+            [Stored(firstDocument), Stored(secondDocument)],
+            [LicenseStoreReplaceResult.Conflict, LicenseStoreReplaceResult.Applied]);
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 3)),
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1)),
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 2))));
+
+        LicenseStatus status = await service.ImportAsync(
+            new LicenseImportRequest([121, 122, 123]),
+            CancellationToken.None);
+
+        Assert.Equal(LicenseState.Valid, status.State);
+        Assert.Equal(3, status.Grant!.Sequence);
+        Assert.Equal(2, store.ReplaceCalls);
+        Assert.Equal(SHA256.HashData(firstDocument), store.Preconditions[0].ExpectedToken.ToArray());
+        Assert.Equal(SHA256.HashData(secondDocument), store.Preconditions[1].ExpectedToken.ToArray());
+    }
+
+    [Fact]
+    public async Task RepeatedConflictsStopAfterTheBoundedAttemptCount()
+    {
+        byte[] document = [131, 132, 133];
+        var store = new ScriptedLicenseStore(
+            [Stored(document), Stored(document), Stored(document)],
+            [
+                LicenseStoreReplaceResult.Conflict,
+                LicenseStoreReplaceResult.Conflict,
+                LicenseStoreReplaceResult.Conflict
+            ]);
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 2)),
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))));
+
+        LicenseImportException error = await Assert.ThrowsAsync<LicenseImportException>(() =>
+            service.ImportAsync(
+                new LicenseImportRequest([141, 142, 143]),
+                CancellationToken.None));
+
+        Assert.Equal("LICENSE_CONFLICT", error.Code);
+        Assert.Equal(3, store.ReplaceCalls);
+    }
+
+    private static StoredLicense Stored(byte[] document) =>
+        new(document, SHA256.HashData(document), hasValidIntegrity: true);
 }

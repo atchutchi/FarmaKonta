@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -7,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Nofarma.Application.Abstractions;
 using Nofarma.Application.Licensing;
+using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Common;
 using Nofarma.Domain.Identity;
 using Nofarma.Domain.Licensing;
@@ -18,6 +20,50 @@ namespace Nofarma.IntegrationTests.Licensing;
 
 public sealed class LicensePersistenceTests
 {
+    [Fact]
+    public async Task ReplacementRequiresTheExactObservedDocumentToken()
+    {
+        await using LicenseDatabase db = await LicenseDatabase.CreateWithLicenseAsync(sequence: 1);
+        StoredLicense observed = Assert.IsType<StoredLicense>(
+            await db.Store.GetAsync(TestContext.Current.CancellationToken));
+        await db.Store.ReplaceAsync(
+            db.Verified(2),
+            db.Audit("license.renewed", grant: db.Grant(2)),
+            LicenseStorePrecondition.Matching(observed.ConcurrencyToken),
+            TestContext.Current.CancellationToken);
+
+        LicenseStoreReplaceResult result = await db.Store.ReplaceAsync(
+            db.Verified(3),
+            db.Audit("license.renewed", grant: db.Grant(3)),
+            LicenseStorePrecondition.Matching(observed.ConcurrencyToken),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(LicenseStoreReplaceResult.Conflict, result);
+        Assert.Equal(2, await db.CurrentSequenceAsync());
+    }
+
+    [Fact]
+    public async Task IdenticalDocumentAfterConcurrentChangeIsAlreadyCurrentWithoutDuplicateAudit()
+    {
+        await using LicenseDatabase db = await LicenseDatabase.CreateAsync();
+        VerifiedLicense document = db.Verified(1);
+        LicenseStoreReplaceResult first = await db.Store.ReplaceAsync(
+            document,
+            db.Audit("license.imported", grant: document.Grant),
+            LicenseStorePrecondition.ExpectedAbsent(),
+            TestContext.Current.CancellationToken);
+        LicenseStoreReplaceResult repeated = await db.Store.ReplaceAsync(
+            document,
+            db.Audit("license.imported", grant: document.Grant),
+            LicenseStorePrecondition.ExpectedAbsent(),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(LicenseStoreReplaceResult.Applied, first);
+        Assert.Equal(LicenseStoreReplaceResult.AlreadyCurrent, repeated);
+        await using NofarmaDbContext check = db.OpenContext();
+        Assert.Equal(1, await check.AuditEvents.CountAsync(TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task ImportAtomicallyStoresLicenseAuditAndActiveInstallation()
     {
@@ -47,7 +93,7 @@ public sealed class LicensePersistenceTests
 
         await db.Store.ReplaceAsync(
             db.Verified(sequence: 2),
-            db.Audit("license.renewed"),
+            db.Audit("license.renewed", grant: db.Grant(2)),
             TestContext.Current.CancellationToken);
 
         await using NofarmaDbContext check = db.OpenContext();
@@ -57,13 +103,62 @@ public sealed class LicensePersistenceTests
     }
 
     [Fact]
+    public async Task TwoRenewalsProduceCanonicalSafeReconstructableAuditHistory()
+    {
+        await using LicenseDatabase db = await LicenseDatabase.CreateAsync();
+        foreach ((long sequence, string action) in new[]
+        {
+            (1L, "license.imported"),
+            (2L, "license.renewed"),
+            (3L, "license.renewed")
+        })
+        {
+            await db.Store.ReplaceAsync(
+                db.Verified(sequence),
+                db.Audit(action, grant: db.Grant(sequence)),
+                TestContext.Current.CancellationToken);
+        }
+
+        await using NofarmaDbContext check = db.OpenContext();
+        var history = new List<(long Sequence, string Plan, string From, string Until)>();
+        string[] details = await check.AuditEvents.AsNoTracking()
+            .Where(record => record.ObjectType == "License")
+            .Select(record => record.DetailsJson)
+            .ToArrayAsync(TestContext.Current.CancellationToken);
+        foreach (string metadata in details)
+        {
+            using JsonDocument json = JsonDocument.Parse(metadata);
+            JsonElement root = json.RootElement;
+            Assert.Equal(4, root.EnumerateObject().Count());
+            history.Add((
+                root.GetProperty("sequence").GetInt64(),
+                root.GetProperty("plan").GetString()!,
+                root.GetProperty("validFromUtc").GetString()!,
+                root.GetProperty("validUntilUtc").GetString()!));
+            Assert.DoesNotContain("signature", metadata, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("thumbprint", metadata, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("hash", metadata, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("key", metadata, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.Equal([1, 2, 3], history.Select(item => item.Sequence).Order().ToArray());
+        Assert.All(history, item => Assert.Equal("Monthly", item.Plan));
+        Assert.All(
+            history,
+            item => Assert.Equal("2026-08-01T00:00:00.0000000+00:00", item.From));
+        Assert.All(
+            history,
+            item => Assert.Equal("2026-08-31T23:59:59.0000000+00:00", item.Until));
+    }
+
+    [Fact]
     public async Task FailureBeforeCommitLeavesLicenseAuditAndInstallationUntouched()
     {
         await using LicenseDatabase db = await LicenseDatabase.CreateAsync();
         Guid repeatedAuditId = Guid.NewGuid();
         await db.Store.ReplaceAsync(
             db.Verified(sequence: 2),
-            db.Audit("license.imported", repeatedAuditId),
+            db.Audit("license.imported", repeatedAuditId, grant: db.Grant(2)),
             TestContext.Current.CancellationToken);
         await using (NofarmaDbContext status = db.OpenContext())
         {
@@ -73,7 +168,7 @@ public sealed class LicensePersistenceTests
 
         await Assert.ThrowsAsync<DbUpdateException>(() => db.Store.ReplaceAsync(
             db.Verified(sequence: 3),
-            db.Audit("license.renewed", repeatedAuditId),
+            db.Audit("license.renewed", repeatedAuditId, grant: db.Grant(3)),
             TestContext.Current.CancellationToken));
 
         await using NofarmaDbContext check = db.OpenContext();
@@ -97,7 +192,7 @@ public sealed class LicensePersistenceTests
 
         await Assert.ThrowsAsync<ArgumentException>(() => db.Store.ReplaceAsync(
             db.Verified(2, new byte[65_537]),
-            db.Audit("license.renewed"),
+            db.Audit("license.renewed", grant: db.Grant(2)),
             TestContext.Current.CancellationToken));
 
         Assert.Equal(1, await db.CurrentSequenceAsync());
@@ -110,12 +205,18 @@ public sealed class LicensePersistenceTests
     [InlineData(2)]
     public async Task EqualOrLowerSequenceCannotReplaceCurrentLicense(long attemptedSequence)
     {
-        await using LicenseDatabase db = await LicenseDatabase.CreateWithLicenseAsync(sequence: 2);
+        await using LicenseDatabase db = await LicenseDatabase.CreateAsync();
+        using var signed = SignedLicense.Create(db.PharmacyId, db.DeviceId, sequence: 2);
+        VerifiedLicense current = Assert.IsType<VerifiedLicense>(
+            signed.Verifier.Verify(signed.Document, signed.Device, signed.Context).License);
+        await db.Store.ReplaceAsync(
+            current,
+            db.Audit("license.imported", grant: current.Grant),
+            TestContext.Current.CancellationToken);
 
         LicenseImportException error = await Assert.ThrowsAsync<LicenseImportException>(() =>
-            db.Store.ReplaceAsync(
-                db.Verified(attemptedSequence),
-                db.Audit("license.renewed"),
+            signed.CreateService(db).ImportAsync(
+                new LicenseImportRequest(signed.Issue(attemptedSequence)),
                 TestContext.Current.CancellationToken));
 
         Assert.Equal("LICENSE_ROLLBACK", error.Code);
@@ -123,30 +224,50 @@ public sealed class LicensePersistenceTests
     }
 
     [Fact]
-    public async Task ConcurrentReplacementsKeepOnlyTheHighestSequence()
+    public async Task ConcurrentRecoveryKeepsHighestSignedSequenceWithDeterministicFirstRead()
     {
         await using LicenseDatabase db = await LicenseDatabase.CreateWithLicenseAsync(sequence: 1);
-        Task first = db.Store.ReplaceAsync(
-            db.Verified(2),
-            db.Audit("license.renewed"),
-            TestContext.Current.CancellationToken);
-        Task second = db.Store.ReplaceAsync(
-            db.Verified(3),
-            db.Audit("license.renewed"),
-            TestContext.Current.CancellationToken);
+        using var signed = SignedLicense.Create(db.PharmacyId, db.DeviceId, sequence: 2);
+        var synchronized = new FirstReadsBarrierLicenseStore(db.Store, participants: 2);
+        LicenseService lowerService = signed.CreateService(db, synchronized);
+        LicenseService higherService = signed.CreateService(db, synchronized);
+        Task<LicenseImportException?> lower = CaptureImportErrorAsync(
+            lowerService,
+            signed.Issue(2));
+        Task<LicenseImportException?> higher = CaptureImportErrorAsync(
+            higherService,
+            signed.Issue(3));
 
-        try
-        {
-            await Task.WhenAll(first, second);
-        }
-        catch (LicenseImportException error)
-        {
-            Assert.Equal("LICENSE_ROLLBACK", error.Code);
-        }
+        await Task.WhenAll(lower, higher);
 
         Assert.Equal(3, await db.CurrentSequenceAsync());
+        Assert.Null(await higher);
+        LicenseImportException? lowerError = await lower;
+        Assert.True(lowerError is null || lowerError.Code == "LICENSE_ROLLBACK");
         await using NofarmaDbContext check = db.OpenContext();
         Assert.Equal(1, await check.Licenses.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ConcurrentIdenticalImportsPersistOnlyOneAuditWithDeterministicFirstRead()
+    {
+        await using LicenseDatabase db = await LicenseDatabase.CreateAsync();
+        using var signed = SignedLicense.Create(db.PharmacyId, db.DeviceId, sequence: 1);
+        var synchronized = new FirstReadsBarrierLicenseStore(db.Store, participants: 2);
+        LicenseService firstService = signed.CreateService(db, synchronized);
+        LicenseService secondService = signed.CreateService(db, synchronized);
+
+        await Task.WhenAll(
+            firstService.ImportAsync(
+                new LicenseImportRequest(signed.Document),
+                TestContext.Current.CancellationToken),
+            secondService.ImportAsync(
+                new LicenseImportRequest(signed.Document),
+                TestContext.Current.CancellationToken));
+
+        await using NofarmaDbContext check = db.OpenContext();
+        Assert.Equal(1, await check.Licenses.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await check.AuditEvents.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -239,6 +360,20 @@ public sealed class LicensePersistenceTests
     }
 
     [Fact]
+    public void CleanupValidationRequiresARealChildOfTempWithTheExpectedPrefix()
+    {
+        string valid = Path.Combine(
+            Path.GetTempPath(),
+            $"nofarma-license-{Guid.NewGuid():N}");
+        string siblingOfTemp = Path.GetFullPath(Path.GetTempPath())
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + $"-outside{Path.DirectorySeparatorChar}nofarma-license-{Guid.NewGuid():N}";
+
+        Assert.True(LicenseDatabase.IsSafeTestDirectory(valid, "nofarma-license-"));
+        Assert.False(LicenseDatabase.IsSafeTestDirectory(siblingOfTemp, "nofarma-license-"));
+    }
+
+    [Fact]
     public async Task MigrationUpgradesCashShiftDatabaseAndPreservesInstallation()
     {
         string directory = Path.Combine(
@@ -328,9 +463,7 @@ public sealed class LicensePersistenceTests
         {
             SqliteConnection.ClearAllPools();
             string full = Path.GetFullPath(directory);
-            string temp = Path.GetFullPath(Path.GetTempPath());
-            if (full.StartsWith(temp, StringComparison.OrdinalIgnoreCase)
-                && Path.GetFileName(full).StartsWith("nofarma-license-upgrade-", StringComparison.Ordinal))
+            if (LicenseDatabase.IsSafeTestDirectory(full, "nofarma-license-upgrade-"))
             {
                 Directory.Delete(full, recursive: true);
             }
@@ -353,10 +486,10 @@ public sealed class LicensePersistenceTests
     }
 
     [Fact]
-    public async Task CancellationAfterAuditInsertRollsBackEveryMutation()
+    public async Task CancellationAfterFinalInstallationWriteRollsBackBeforeCommit()
     {
         using var cancellation = new CancellationTokenSource();
-        var interceptor = new CancelAfterAuditInsertInterceptor(cancellation);
+        var interceptor = new CancelAfterInstallationUpdateInterceptor(cancellation);
         await using LicenseDatabase db = await LicenseDatabase.CreateAsync(
             interceptor: interceptor);
 
@@ -403,10 +536,13 @@ public sealed class LicensePersistenceTests
             await mutation.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        LicenseStatus status = await signed.CreateService(db).GetStatusAsync(
-            TestContext.Current.CancellationToken);
+        LicenseStatus status = await signed.CreateService(
+            db,
+            now: UtcInstant.From(
+                new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero)))
+            .GetStatusAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(LicenseState.Valid, status.State);
+        Assert.Equal(LicenseState.ExpiredReadOnly, status.State);
         Assert.Equal(1, status.Grant!.Sequence);
         Assert.Equal(LicensePlan.Monthly, status.Grant.Plan);
         Assert.Equal(
@@ -453,6 +589,65 @@ public sealed class LicensePersistenceTests
             TestContext.Current.CancellationToken);
         Assert.Equal(LicenseState.Invalid, hashStatus.State);
         Assert.False(hashStatus.AllowsNewOperations);
+
+        LicenseStatus recovered = await signed.CreateService(db).ImportAsync(
+            new LicenseImportRequest(signed.Document),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(LicenseState.Valid, recovered.State);
+        await using NofarmaDbContext repaired = db.OpenContext();
+        LicenseRecord repairedRecord = await repaired.Licenses.AsNoTracking()
+            .SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(SHA256.HashData(repairedRecord.DocumentBytes), repairedRecord.DocumentHash);
+        Assert.Equal(1, await repaired.AuditEvents.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CorruptedStoredHashNeverPermitsDowngradeOfAValidSignedDocument()
+    {
+        await using LicenseDatabase db = await LicenseDatabase.CreateAsync();
+        using var signed = SignedLicense.Create(db.PharmacyId, db.DeviceId, sequence: 2);
+        VerifiedLicense current = Assert.IsType<VerifiedLicense>(
+            signed.Verifier.Verify(signed.Document, signed.Device, signed.Context).License);
+        await db.Store.ReplaceAsync(
+            current,
+            db.Audit("license.imported", grant: current.Grant),
+            TestContext.Current.CancellationToken);
+
+        await using (NofarmaDbContext corruptHash = db.OpenContext())
+        {
+            LicenseRecord record = await corruptHash.Licenses.SingleAsync(
+                TestContext.Current.CancellationToken);
+            record.DocumentHash = new byte[32];
+            await corruptHash.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        LicenseImportException error = await Assert.ThrowsAsync<LicenseImportException>(() =>
+            signed.CreateService(db).ImportAsync(
+                new LicenseImportRequest(signed.Issue(sequence: 1)),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal("LICENSE_ROLLBACK", error.Code);
+        Assert.Equal(2, await db.CurrentSequenceAsync());
+        LicenseStatus status = await signed.CreateService(db).GetStatusAsync(
+            TestContext.Current.CancellationToken);
+        Assert.Equal(LicenseState.Invalid, status.State);
+    }
+
+    private static async Task<LicenseImportException?> CaptureImportErrorAsync(
+        LicenseService service,
+        byte[] document)
+    {
+        try
+        {
+            await service.ImportAsync(
+                new LicenseImportRequest(document),
+                TestContext.Current.CancellationToken);
+            return null;
+        }
+        catch (LicenseImportException error)
+        {
+            return error;
+        }
     }
 
     private static async Task<HashSet<string>> ReadNamesAsync(
@@ -482,7 +677,7 @@ public sealed class LicensePersistenceTests
         return Assert.IsType<string>(await command.ExecuteScalarAsync(cancellationToken));
     }
 
-    private sealed class CancelAfterAuditInsertInterceptor(
+    private sealed class CancelAfterInstallationUpdateInterceptor(
         CancellationTokenSource cancellation) : DbCommandInterceptor
     {
         internal bool WasTriggered { get; private set; }
@@ -492,7 +687,7 @@ public sealed class LicensePersistenceTests
             CommandExecutedEventData eventData,
             int result)
         {
-            CancelIfAuditInsert(command);
+            CancelIfInstallationUpdate(command);
             return result;
         }
 
@@ -502,7 +697,7 @@ public sealed class LicensePersistenceTests
             int result,
             CancellationToken cancellationToken = default)
         {
-            CancelIfAuditInsert(command);
+            CancelIfInstallationUpdate(command);
             return ValueTask.FromResult(result);
         }
 
@@ -511,7 +706,7 @@ public sealed class LicensePersistenceTests
             CommandExecutedEventData eventData,
             DbDataReader result)
         {
-            CancelIfAuditInsert(command);
+            CancelIfInstallationUpdate(command);
             return result;
         }
 
@@ -521,14 +716,14 @@ public sealed class LicensePersistenceTests
             DbDataReader result,
             CancellationToken cancellationToken = default)
         {
-            CancelIfAuditInsert(command);
+            CancelIfInstallationUpdate(command);
             return ValueTask.FromResult(result);
         }
 
-        private void CancelIfAuditInsert(DbCommand command)
+        private void CancelIfInstallationUpdate(DbCommand command)
         {
             if (command.CommandText.Contains(
-                    "INSERT INTO \"AuditEvents\"",
+                    "UPDATE \"Installations\"",
                     StringComparison.Ordinal))
             {
                 WasTriggered = true;
@@ -537,24 +732,63 @@ public sealed class LicensePersistenceTests
         }
     }
 
+    private sealed class FirstReadsBarrierLicenseStore(
+        ILicenseStore inner,
+        int participants) : ILicenseStore
+    {
+        private readonly TaskCompletionSource _release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _readCount;
+
+        public async Task<StoredLicense?> GetAsync(CancellationToken cancellationToken)
+        {
+            StoredLicense? current = await inner.GetAsync(cancellationToken);
+            int read = Interlocked.Increment(ref _readCount);
+            if (read <= participants)
+            {
+                if (read == participants)
+                {
+                    _release.TrySetResult();
+                }
+
+                await _release.Task.WaitAsync(cancellationToken);
+            }
+
+            return current;
+        }
+
+        public Task<LicenseStoreReplaceResult> ReplaceAsync(
+            VerifiedLicense license,
+            AuditEvent audit,
+            LicenseStorePrecondition precondition,
+            CancellationToken cancellationToken) =>
+            inner.ReplaceAsync(license, audit, precondition, cancellationToken);
+    }
+
     private sealed class SignedLicense : IDisposable
     {
         private const string Thumbprint = "SHA256:INTEGRATION-DEVICE";
         private const string KeyId = "qa-integration-key";
         private readonly ECDsa _signingKey;
+        private readonly Guid _pharmacyId;
+        private readonly Guid _deviceId;
 
         private SignedLicense(
             ECDsa signingKey,
-            byte[] document,
             EcdsaLicenseDocumentVerifier verifier,
             LicenseContext context,
-            DeviceLicenseIdentity device)
+            DeviceLicenseIdentity device,
+            Guid pharmacyId,
+            Guid deviceId,
+            long sequence)
         {
             _signingKey = signingKey;
-            Document = document;
+            _pharmacyId = pharmacyId;
+            _deviceId = deviceId;
             Verifier = verifier;
             Context = context;
             Device = device;
+            Document = Issue(sequence);
         }
 
         internal byte[] Document { get; }
@@ -576,15 +810,33 @@ public sealed class LicensePersistenceTests
                 new EntityId(pharmacyId),
                 new EntityId(deviceId),
                 Thumbprint);
+            var registry = new TrustedLicenseKeyRegistry(
+                LicenseBuildChannel.Qa,
+                new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal)
+                {
+                    [KeyId] = signingKey.ExportSubjectPublicKeyInfo()
+                });
+            return new SignedLicense(
+                signingKey,
+                new EcdsaLicenseDocumentVerifier(registry),
+                context,
+                device,
+                pharmacyId,
+                deviceId,
+                sequence);
+        }
+
+        internal byte[] Issue(long sequence)
+        {
             var unsigned = new SignedLicenseEnvelope(
                 EcdsaLicenseDocumentVerifier.CurrentSchemaVersion,
                 LicenseBuildChannel.Qa,
                 KeyId,
                 EcdsaLicenseDocumentVerifier.EcdsaP256Sha256P1363Algorithm,
                 Guid.Parse("44444444-4444-4444-4444-444444444444"),
-                pharmacyId,
-                pharmacyId,
-                deviceId,
+                _pharmacyId,
+                _pharmacyId,
+                _deviceId,
                 Thumbprint,
                 LicensePlan.Monthly,
                 sequence,
@@ -594,34 +846,26 @@ public sealed class LicensePersistenceTests
                 new DateTimeOffset(2026, 9, 7, 23, 59, 59, TimeSpan.Zero),
                 Array.Empty<int>(),
                 ReadOnlyMemory<byte>.Empty);
-            byte[] signature = signingKey.SignData(
+            byte[] signature = _signingKey.SignData(
                 CanonicalLicenseJson.SerializePayload(unsigned),
                 HashAlgorithmName.SHA256,
                 DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
-            byte[] document = CanonicalLicenseJson.SerializeEnvelope(
+            return CanonicalLicenseJson.SerializeEnvelope(
                 unsigned with { Signature = signature });
-            var registry = new TrustedLicenseKeyRegistry(
-                LicenseBuildChannel.Qa,
-                new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal)
-                {
-                    [KeyId] = signingKey.ExportSubjectPublicKeyInfo()
-                });
-            return new SignedLicense(
-                signingKey,
-                document,
-                new EcdsaLicenseDocumentVerifier(registry),
-                context,
-                device);
         }
 
-        internal LicenseService CreateService(LicenseDatabase database) =>
+        internal LicenseService CreateService(
+            LicenseDatabase database,
+            ILicenseStore? store = null,
+            UtcInstant? now = null) =>
             new(
-                database.Store,
+                store ?? database.Store,
                 database.ContextStore,
                 Verifier,
                 new FixedIdentityStore(Device),
                 new NoRollbackCheckpoint(),
-                new FixedClock());
+                new FixedClock(now ?? UtcInstant.From(
+                    new DateTimeOffset(2026, 8, 10, 12, 0, 0, TimeSpan.Zero))));
 
         public void Dispose() => _signingKey.Dispose();
 
@@ -641,10 +885,9 @@ public sealed class LicensePersistenceTests
                 new(false);
         }
 
-        private sealed class FixedClock : IUtcClock
+        private sealed class FixedClock(UtcInstant now) : IUtcClock
         {
-            public UtcInstant GetCurrentInstant() => UtcInstant.From(
-                new DateTimeOffset(2026, 8, 10, 12, 0, 0, TimeSpan.Zero));
+            public UtcInstant GetCurrentInstant() => now;
         }
     }
 }
