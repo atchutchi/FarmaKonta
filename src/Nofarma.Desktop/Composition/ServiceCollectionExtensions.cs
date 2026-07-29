@@ -6,9 +6,14 @@ namespace Nofarma.Desktop.Composition;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddNofarmaDesktop(this IServiceCollection services)
+    public static IServiceCollection AddNofarmaDesktop(
+        this IServiceCollection services,
+        DesktopLicenseConfiguration licenseConfiguration)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(licenseConfiguration);
+        services.AddSingleton(licenseConfiguration);
+        services.AddSingleton(new LicenseChannelContext(licenseConfiguration.Channel));
         services.AddSingleton<MainWindow>();
         services.AddSingleton<NavigationService>();
         services.AddTransient<SetupWizardViewModel>();
@@ -26,6 +31,10 @@ public static class ServiceCollectionExtensions
         services.AddTransient<CashViewModel>();
         services.AddTransient<IInventoryImportPageOperations, InventoryImportPageOperations>();
         services.AddTransient<InventoryImportViewModel>();
+        services.AddSingleton<LicensePageOperations>();
+        services.AddSingleton<ILicensePageOperations>(provider =>
+            provider.GetRequiredService<LicensePageOperations>());
+        services.AddTransient<LicenseViewModel>();
         return services;
     }
 }

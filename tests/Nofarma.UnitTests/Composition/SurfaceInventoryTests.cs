@@ -46,7 +46,8 @@ public sealed class SurfaceInventoryTests
         Assert.Contains("Target=\"StockAlertText.Visibility\" Value=\"Collapsed\"", shell, StringComparison.Ordinal);
         Assert.Contains("Target=\"StockAlertText.Visibility\" Value=\"Visible\"", shell, StringComparison.Ordinal);
         Assert.Contains("Target=\"LocalDataText.Visibility\" Value=\"Collapsed\"", shell, StringComparison.Ordinal);
-        Assert.Contains("Target=\"ActivationText.Visibility\" Value=\"Collapsed\"", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("Target=\"ActivationText.Visibility\" Value=\"Collapsed\"", shell, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"ActivationText\"", shell, StringComparison.Ordinal);
         Assert.Contains("<ColumnDefinition Width=\"*\" />", shell, StringComparison.Ordinal);
         Assert.Contains("<ColumnDefinition Width=\"Auto\" />", shell, StringComparison.Ordinal);
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", shell, StringComparison.Ordinal);

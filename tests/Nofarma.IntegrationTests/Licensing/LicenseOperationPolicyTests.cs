@@ -9,9 +9,9 @@ using Nofarma.Application.Inventory.Import;
 using Nofarma.Application.Licensing;
 using Nofarma.Application.Purchasing;
 using Nofarma.Application.Sales;
+using Nofarma.Domain.Common;
 using Nofarma.Domain.Identity;
 using Nofarma.Domain.Inventory;
-using Nofarma.Domain.Common;
 using Nofarma.Domain.Licensing;
 using Nofarma.Infrastructure.Composition;
 using Nofarma.Infrastructure.Licensing;
@@ -87,6 +87,34 @@ public sealed class LicenseOperationPolicyTests : IAsyncLifetime
             TestContext.Current.CancellationToken));
         Assert.Empty(await verification.AuditEvents.ToArrayAsync(
             TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CompositionUsesOnlyTheExplicitBuildChannelAndPublicKeys()
+    {
+        await using StockTestDatabase database = await StockTestDatabase.CreateAsync();
+        using ECDsa signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var trustedKeys = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal)
+        {
+            ["qa-2026-01"] = signingKey.ExportSubjectPublicKeyInfo()
+        };
+
+        using ServiceProvider provider = new ServiceCollection()
+            .AddNofarmaLocalIdentity(
+                database.DatabasePath,
+                Path.Combine(_directory, "qa-secrets"),
+                LicenseBuildChannel.Qa,
+                trustedKeys)
+            .BuildServiceProvider(new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+
+        TrustedLicenseKeyRegistry registry =
+            provider.GetRequiredService<TrustedLicenseKeyRegistry>();
+
+        Assert.Equal(LicenseBuildChannel.Qa, registry.BuildChannel);
     }
 
     [Fact]

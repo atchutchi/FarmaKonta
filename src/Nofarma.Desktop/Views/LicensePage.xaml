@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Nofarma.Desktop.Views.LicensePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{StaticResource NofarmaCanvasBrush}"
+    Loaded="OnLoaded"
+    Unloaded="OnUnloaded">
+    <Grid>
+        <ScrollViewer
+            HorizontalScrollBarVisibility="Disabled"
+            HorizontalScrollMode="Disabled"
+            VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24" Spacing="16">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource NofarmaHeadingStyle}" Text="Licença" />
+                        <TextBlock
+                            Foreground="{StaticResource NofarmaMutedBrush}"
+                            Text="Consulte o estado deste computador e trate a activação offline."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Border
+                        x:Name="QaModeBadge"
+                        Grid.Column="1"
+                        Padding="12,6"
+                        VerticalAlignment="Center"
+                        Background="{StaticResource NofarmaWarningSoftBrush}"
+                        BorderBrush="{StaticResource NofarmaWarningBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Visibility="Collapsed">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Foreground="{StaticResource NofarmaWarningBrush}"
+                            Text="Modo QA" />
+                    </Border>
+                </Grid>
+
+                <Grid ColumnSpacing="18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="360" />
+                        <ColumnDefinition Width="*" MinWidth="420" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border
+                        Padding="20"
+                        Background="White"
+                        BorderBrush="{StaticResource NofarmaBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                        <StackPanel Spacing="16">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="44" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border
+                                    x:Name="StatusIconBackground"
+                                    Width="44"
+                                    Height="44"
+                                    Background="{StaticResource NofarmaWarningSoftBrush}"
+                                    CornerRadius="8">
+                                    <FontIcon
+                                        x:Name="StatusIcon"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.Name="Estado da licença"
+                                        FontSize="22"
+                                        Foreground="{StaticResource NofarmaWarningBrush}"
+                                        Glyph="&#xE946;" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                    <TextBlock
+                                        x:Name="StatusText"
+                                        AutomationProperties.LiveSetting="Polite"
+                                        FontSize="20"
+                                        FontWeight="SemiBold"
+                                        Text="A confirmar licença" />
+                                    <TextBlock
+                                        x:Name="StatusDescriptionText"
+                                        Foreground="{StaticResource NofarmaMutedBrush}"
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Height="1" Background="{StaticResource NofarmaBorderBrush}" />
+
+                            <Grid ColumnSpacing="20" RowSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Plano" />
+                                    <TextBlock x:Name="PlanText" FontWeight="SemiBold" Text="Não disponível" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Início da validade" />
+                                    <TextBlock x:Name="ValidFromText" FontWeight="SemiBold" Text="Não disponível" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Spacing="4">
+                                    <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Fim da validade" />
+                                    <TextBlock x:Name="ValidUntilText" FontWeight="SemiBold" Text="Não disponível" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                                    <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Fim da tolerância" />
+                                    <TextBlock x:Name="GraceUntilText" FontWeight="SemiBold" Text="Não disponível" />
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Identificador deste computador" />
+                                <TextBox
+                                    x:Name="DeviceIdentifierBox"
+                                    MinHeight="44"
+                                    AutomationProperties.Name="Identificador público deste computador"
+                                    IsReadOnly="True"
+                                    Style="{StaticResource NofarmaFieldStyle}"
+                                    Text="Não disponível" />
+                                <TextBlock
+                                    Foreground="{StaticResource NofarmaMutedBrush}"
+                                    Text="Este identificador não é uma palavra-passe. É usado apenas para associar a licença a este computador."
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        Grid.Column="1"
+                        Padding="20"
+                        Background="White"
+                        BorderBrush="{StaticResource NofarmaBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                        <StackPanel Spacing="16">
+                            <StackPanel Spacing="4">
+                                <TextBlock FontSize="19" FontWeight="SemiBold" Text="Activação offline" />
+                                <TextBlock
+                                    Foreground="{StaticResource NofarmaMutedBrush}"
+                                    Text="O pedido e a licença podem ser transportados por uma pen ou por outro meio seguro. Não incluem vendas, stock ou credenciais."
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <Border Height="1" Background="{StaticResource NofarmaBorderBrush}" />
+
+                            <StackPanel Spacing="8">
+                                <TextBlock FontWeight="SemiBold" Text="1. Exportar pedido" />
+                                <TextBlock
+                                    Foreground="{StaticResource NofarmaMutedBrush}"
+                                    Text="Guarde um ficheiro .nofarma-request neste computador e envie-o à ABIPTOM."
+                                    TextWrapping="Wrap" />
+                                <Button
+                                    x:Name="ExportRequestButton"
+                                    MinHeight="44"
+                                    AutomationProperties.Name="Guardar pedido de activação"
+                                    Click="OnExportRequest"
+                                    Content="Guardar pedido de activação"
+                                    Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                            </StackPanel>
+
+                            <Border Height="1" Background="{StaticResource NofarmaBorderBrush}" />
+
+                            <StackPanel Spacing="8">
+                                <TextBlock FontWeight="SemiBold" Text="2. Importar licença" />
+                                <TextBlock
+                                    Foreground="{StaticResource NofarmaMutedBrush}"
+                                    Text="Depois de receber o ficheiro .nofarma-license, seleccione-o para validar e actualizar o estado."
+                                    TextWrapping="Wrap" />
+                                <Button
+                                    x:Name="ImportLicenseButton"
+                                    MinHeight="44"
+                                    Padding="24,10"
+                                    AutomationProperties.Name="Seleccionar e importar licença"
+                                    Click="OnImportLicense"
+                                    Content="Seleccionar e importar licença" />
+                            </StackPanel>
+
+                            <InfoBar
+                                x:Name="LicenseMessageBar"
+                                AutomationProperties.LiveSetting="Assertive"
+                                IsClosable="True"
+                                IsOpen="False" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+
+        <ProgressRing
+            x:Name="LicenseProgress"
+            Width="40"
+            Height="40"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            AutomationProperties.Name="Operação de licença em curso"
+            IsActive="False"
+            Visibility="Collapsed" />
+    </Grid>
+</Page>

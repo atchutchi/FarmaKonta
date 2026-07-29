@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Nofarma.Desktop.Composition;
+using Nofarma.Desktop.Services;
 using Nofarma.Infrastructure.Composition;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -23,9 +24,17 @@ public partial class App : Microsoft.UI.Xaml.Application
     public App()
     {
         InitializeComponent();
+        DesktopLicenseConfiguration licenseConfiguration =
+            DesktopLicenseConfiguration.LoadCurrent();
+        string dataDirectory = Path.Combine(licenseConfiguration.BaseDirectory, "data");
+        Directory.CreateDirectory(dataDirectory);
         _services = new ServiceCollection()
-            .AddNofarmaLocalIdentity()
-            .AddNofarmaDesktop()
+            .AddNofarmaLocalIdentity(
+                Path.Combine(dataDirectory, "nofarma.db"),
+                Path.Combine(licenseConfiguration.BaseDirectory, "licensing-secrets"),
+                licenseConfiguration.Channel,
+                licenseConfiguration.TrustedPublicKeys)
+            .AddNofarmaDesktop(licenseConfiguration)
             .BuildServiceProvider(validateScopes: true);
     }
 

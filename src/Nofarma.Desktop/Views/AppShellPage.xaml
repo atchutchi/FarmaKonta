@@ -4,7 +4,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Background="{StaticResource NofarmaCanvasBrush}"
-    Loaded="OnLoaded">
+    Loaded="OnLoaded"
+    Unloaded="OnUnloaded">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="210" />
@@ -32,7 +33,7 @@
                 Text="NôFarma" />
             <ScrollViewer Grid.Row="1">
                 <StackPanel x:Name="NavigationButtons" Padding="8,10" Spacing="3">
-                    <Button Tag="Painel" Click="OnNavigate" Content="Painel" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button x:Name="PanelButton" Tag="Painel" Click="OnNavigate" Content="Painel" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button Tag="Vendas" Click="OnNavigate" Content="Vendas" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button Tag="Facturas" Click="OnNavigate" Content="Facturas" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button Tag="Produtos" Click="OnNavigate" Content="Produtos" Style="{StaticResource ShellNavigationButtonStyle}" />
@@ -44,6 +45,7 @@
                     <Button Tag="Relatórios" Click="OnNavigate" Content="Relatórios" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button x:Name="AuditButton" Tag="Auditoria" Click="OnNavigate" Content="Auditoria" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button x:Name="UsersButton" Tag="Utilizadores" Click="OnNavigate" Content="Utilizadores" Style="{StaticResource ShellNavigationButtonStyle}" />
+                    <Button Tag="Licença" MinHeight="44" Click="OnNavigate" Content="Licença" Style="{StaticResource ShellNavigationButtonStyle}" />
                     <Button x:Name="SettingsButton" Tag="Configurações" Click="OnNavigate" Content="Configurações" Style="{StaticResource ShellNavigationButtonStyle}" />
                 </StackPanel>
             </ScrollViewer>
@@ -68,7 +70,6 @@
                         <VisualState.Setters>
                             <Setter Target="StockAlertText.Visibility" Value="Collapsed" />
                             <Setter Target="LocalDataText.Visibility" Value="Collapsed" />
-                            <Setter Target="ActivationText.Visibility" Value="Collapsed" />
                         </VisualState.Setters>
                     </VisualState>
                     <VisualState x:Name="WideHeader">
@@ -95,7 +96,8 @@
                 <TextBlock Foreground="#A8C9E8" Text="|" />
                 <TextBlock Foreground="#FFE082" Text="● Sem internet" />
                 <TextBlock x:Name="LocalDataText" Foreground="White" Text="Dados locais" />
-                <TextBlock x:Name="ActivationText" Foreground="#FFE082" Text="Activação pendente" />
+                <TextBlock x:Name="ActivationText" AutomationProperties.LiveSetting="Polite" Foreground="#FFE082" Text="A confirmar licença" />
+                <TextBlock x:Name="QaModeText" FontWeight="SemiBold" Foreground="#FFE082" Text="Modo QA" Visibility="Collapsed" />
                 <TextBlock x:Name="StockAlertText" Foreground="White" Visibility="Collapsed" />
             </StackPanel>
             <Button

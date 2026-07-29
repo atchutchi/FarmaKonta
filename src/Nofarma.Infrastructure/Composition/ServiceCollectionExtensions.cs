@@ -28,7 +28,9 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddNofarmaLocalIdentity(
         this IServiceCollection services,
         string? databasePath = null,
-        string? secretsDirectory = null)
+        string? secretsDirectory = null,
+        LicenseBuildChannel licenseChannel = LicenseBuildChannel.Unlicensed,
+        IEnumerable<KeyValuePair<string, ReadOnlyMemory<byte>>>? trustedPublicKeys = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         databasePath ??= LocalDatabasePath.GetDefault();
@@ -62,17 +64,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ILicenseStore, SqliteLicenseStore>();
         services.AddSingleton<ILicenseContextStore, SqliteLicenseContextStore>();
         services.AddSingleton(new TrustedLicenseKeyRegistry(
-            LicenseBuildChannel.Unlicensed,
-            Array.Empty<KeyValuePair<string, ReadOnlyMemory<byte>>>()));
+            licenseChannel,
+            trustedPublicKeys ?? Array.Empty<KeyValuePair<string, ReadOnlyMemory<byte>>>()));
         services.AddSingleton<ILicenseDocumentVerifier, EcdsaLicenseDocumentVerifier>();
         services.AddSingleton<IDeviceLicenseIdentityStore>(_ =>
             new WindowsDeviceLicenseIdentityStore(
                 licenseSecretsDirectory,
-                channel: LicenseBuildChannel.Unlicensed));
+                channel: licenseChannel));
         services.AddSingleton<ILicenseClockCheckpoint>(_ =>
             new WindowsLicenseClockCheckpoint(
                 licenseSecretsDirectory,
-                channel: LicenseBuildChannel.Unlicensed));
+                channel: licenseChannel));
         services.AddSingleton<ICredentialPepperStore>(
             new WindowsCredentialPepperStore(secretsDirectory));
         services.AddSingleton<ICredentialHasher, Pbkdf2CredentialHasher>();

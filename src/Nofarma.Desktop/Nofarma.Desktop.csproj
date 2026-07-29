@@ -15,7 +15,33 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <NofarmaLicenseChannel Condition="'$(NofarmaLicenseChannel)' == ''">Unlicensed</NofarmaLicenseChannel>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(NofarmaLicenseChannel)' == 'QA'">
+    <DefineConstants>$(DefineConstants);NOFARMA_LICENSE_QA</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(NofarmaLicenseChannel)' == 'Commercial'">
+    <DefineConstants>$(DefineConstants);NOFARMA_LICENSE_COMMERCIAL</DefineConstants>
+  </PropertyGroup>
+
+  <Target Name="ValidateNofarmaLicenseChannel" BeforeTargets="PrepareForBuild">
+    <Error
+      Code="NFLC000"
+      Condition="'$(NofarmaLicenseChannel)' != 'Unlicensed' and '$(NofarmaLicenseChannel)' != 'QA' and '$(NofarmaLicenseChannel)' != 'Commercial'"
+      Text="unknown Nofarma licence channel" />
+  </Target>
+
+  <Target
+    Name="ValidateCommercialLicenseKey"
+    BeforeTargets="PrepareForBuild"
+    Condition="'$(NofarmaLicenseChannel)' == 'Commercial'">
+    <Error
+      Code="NFLC001"
+      Condition="!Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64')"
+      Text="commercial public key is not provisioned" />
+  </Target>
 
   <ItemGroup>
     <Content Include="Assets\SplashScreen.scale-200.png" />
@@ -28,6 +54,18 @@
     <Content Include="Assets\AppIcon.ico" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
     <Content Include="Assets\NofarmaLogo.png" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(NofarmaLicenseChannel)' == 'QA' and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64')">
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64">
+      <LogicalName>Nofarma.Desktop.LicensingPublicKey</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(NofarmaLicenseChannel)' == 'Commercial' and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64')">
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64">
+      <LogicalName>Nofarma.Desktop.LicensingPublicKey</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>
