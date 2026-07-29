@@ -9,6 +9,9 @@ public sealed class LicenseImportException(string code)
 public sealed class LicenseContextUnavailableException()
     : InvalidOperationException("A instalação local não está disponível para licenciamento.");
 
+public sealed class LicensePersistenceIntegrityException()
+    : InvalidOperationException("O estado local da licença não é válido.");
+
 public sealed class LicenseOperationBlockedException(string code)
     : InvalidOperationException("A operação requer uma licença activa.")
 {

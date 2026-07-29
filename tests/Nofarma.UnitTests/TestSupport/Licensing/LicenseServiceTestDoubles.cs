@@ -38,17 +38,70 @@ internal sealed class RecordingLicenseStore : ILicenseStore
         _events?.Add("license.replace");
         ReplaceCalls++;
         LastAudit = audit;
-        _current = new StoredLicense(license);
+        _current = new StoredLicense(license.Document);
         return Task.CompletedTask;
     }
 }
 
-internal sealed class StubVerifier(LicenseVerification result) : ILicenseDocumentVerifier
+internal sealed class ThrowingLicenseStore(Exception exception) : ILicenseStore
 {
+    public Task<StoredLicense?> GetAsync(CancellationToken cancellationToken) =>
+        Task.FromException<StoredLicense?>(exception);
+
+    public Task ReplaceAsync(
+        VerifiedLicense license,
+        AuditEvent audit,
+        CancellationToken cancellationToken) => Task.FromException(exception);
+}
+
+internal sealed class RecoverableIntegrityLicenseStore : ILicenseStore
+{
+    internal int ReplaceCalls { get; private set; }
+
+    internal StoredLicense? Current { get; private set; }
+
+    public Task<StoredLicense?> GetAsync(CancellationToken cancellationToken) =>
+        Task.FromException<StoredLicense?>(new LicensePersistenceIntegrityException());
+
+    public Task ReplaceAsync(
+        VerifiedLicense license,
+        AuditEvent audit,
+        CancellationToken cancellationToken)
+    {
+        ReplaceCalls++;
+        Current = new StoredLicense(license.Document);
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class StubVerifier(params LicenseVerification[] results) : ILicenseDocumentVerifier
+{
+    private readonly Queue<LicenseVerification> _results = new(results);
+
+    internal int Calls { get; private set; }
+
+    internal List<byte[]> Documents { get; } = [];
+
     public LicenseVerification Verify(
         ReadOnlyMemory<byte> document,
         DeviceLicenseIdentity device,
-        LicenseContext context) => result;
+        LicenseContext context)
+    {
+        Calls++;
+        Documents.Add(document.ToArray());
+        if (_results.Count == 0)
+        {
+            throw new InvalidOperationException("No verifier result was configured for this call.");
+        }
+
+        LicenseVerification result = _results.Peek();
+        if (_results.Count > 1)
+        {
+            _results.Dequeue();
+        }
+
+        return result;
+    }
 }
 
 internal sealed class RecordingDeviceLicenseIdentityStore(DeviceLicenseIdentity identity)

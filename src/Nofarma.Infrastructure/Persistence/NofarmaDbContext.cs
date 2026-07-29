@@ -22,6 +22,8 @@ public sealed class NofarmaDbContext(DbContextOptions<NofarmaDbContext> options)
 
     public DbSet<AuditEventRecord> AuditEvents => Set<AuditEventRecord>();
 
+    public DbSet<LicenseRecord> Licenses => Set<LicenseRecord>();
+
     public DbSet<CashShiftRecord> CashShifts => Set<CashShiftRecord>();
 
     public DbSet<CashMovementRecord> CashMovements => Set<CashMovementRecord>();

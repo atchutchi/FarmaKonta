@@ -33,7 +33,7 @@ internal static class LicenseTestData
         Stored(Active(sequence), document);
 
     internal static StoredLicense Stored(LicenseGrant grant, ReadOnlyMemory<byte> document) =>
-        new(new VerifiedLicense(grant, "QA", "test-key", document));
+        new(document);
 
     internal static UtcInstant Instant(string value) =>
         UtcInstant.From(DateTimeOffset.Parse(

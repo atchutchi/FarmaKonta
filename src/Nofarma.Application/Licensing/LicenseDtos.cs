@@ -31,11 +31,16 @@ public sealed record VerifiedLicense(
     string KeyId,
     ReadOnlyMemory<byte> Document);
 
-public sealed record StoredLicense(VerifiedLicense License)
+public sealed class StoredLicense
 {
-    public LicenseGrant Grant => License.Grant;
+    private readonly byte[] _document;
 
-    public ReadOnlyMemory<byte> Document => License.Document;
+    public StoredLicense(ReadOnlyMemory<byte> document)
+    {
+        _document = document.ToArray();
+    }
+
+    public ReadOnlyMemory<byte> Document => _document.ToArray();
 }
 
 public sealed record LicenseVerification(

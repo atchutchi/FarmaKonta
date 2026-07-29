@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Nofarma.Application.Licensing;
 using Nofarma.Domain.Licensing;
@@ -8,6 +9,18 @@ namespace Nofarma.UnitTests.Application.Licensing;
 public sealed class LicenseServiceTests
 {
     private static readonly byte[] ValidBytes = [4, 5, 6];
+
+    [Fact]
+    public void StoredLicenseDoesNotExposeItsMutableDocumentBuffer()
+    {
+        byte[] source = [1, 2, 3];
+        var stored = new StoredLicense(source);
+        source[0] = 9;
+        Assert.True(MemoryMarshal.TryGetArray(stored.Document, out ArraySegment<byte> exposed));
+        exposed.Array![exposed.Offset] = 8;
+
+        Assert.Equal(new byte[] { 1, 2, 3 }, stored.Document.ToArray());
+    }
 
     [Fact]
     public async Task MissingLicenseReportsMissingStatus()
@@ -72,7 +85,7 @@ public sealed class LicenseServiceTests
         var checkpoint = new RecordingLicenseClockCheckpoint();
         var service = LicenseServiceTestFactory.Create(
             new RecordingLicenseStore(LicenseTestData.StoredActive(sequence: 1)),
-            new StubVerifier(LicenseVerification.Invalid("NOT_USED")),
+            new StubVerifier(LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))),
             checkpoint: checkpoint);
 
         await service.GetStatusAsync(CancellationToken.None);
@@ -106,7 +119,9 @@ public sealed class LicenseServiceTests
     public async Task InvalidImportDoesNotReplaceCurrentLicense()
     {
         var store = new RecordingLicenseStore(existing: LicenseTestData.StoredActive(sequence: 4));
-        var verifier = new StubVerifier(LicenseVerification.Invalid("SIGNATURE_INVALID"));
+        var verifier = new StubVerifier(
+            LicenseVerification.Valid(LicenseTestData.Active(sequence: 4)),
+            LicenseVerification.Invalid("SIGNATURE_INVALID"));
         var service = LicenseServiceTestFactory.Create(store, verifier);
 
         LicenseImportException error = await Assert.ThrowsAsync<LicenseImportException>(
@@ -120,7 +135,9 @@ public sealed class LicenseServiceTests
     public async Task OlderRenewalCannotReplaceNewerSequence()
     {
         var store = new RecordingLicenseStore(existing: LicenseTestData.StoredActive(sequence: 4));
-        var verifier = new StubVerifier(LicenseVerification.Valid(LicenseTestData.Active(sequence: 3)));
+        var verifier = new StubVerifier(
+            LicenseVerification.Valid(LicenseTestData.Active(sequence: 4)),
+            LicenseVerification.Valid(LicenseTestData.Active(sequence: 3)));
         var service = LicenseServiceTestFactory.Create(store, verifier);
 
         LicenseImportException error = await Assert.ThrowsAsync<LicenseImportException>(
@@ -207,7 +224,9 @@ public sealed class LicenseServiceTests
             LicenseTestData.StoredActive(sequence: 1));
         var service = LicenseServiceTestFactory.Create(
             store,
-            new StubVerifier(LicenseVerification.Valid(LicenseTestData.Active(sequence: 2))),
+            new StubVerifier(
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1)),
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 2))),
             checkpoint: checkpoint);
 
         LicenseStatus status = await service.ImportAsync(
@@ -225,7 +244,7 @@ public sealed class LicenseServiceTests
             checkException: new CryptographicException("invalid checkpoint"));
         var service = LicenseServiceTestFactory.Create(
             new RecordingLicenseStore(LicenseTestData.StoredActive(sequence: 1)),
-            new StubVerifier(LicenseVerification.Invalid("NOT_USED")),
+            new StubVerifier(LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))),
             checkpoint: checkpoint);
 
         LicenseStatus status = await service.GetStatusAsync(CancellationToken.None);
@@ -269,19 +288,111 @@ public sealed class LicenseServiceTests
     [Fact]
     public async Task ExpiredLicenseBlocksNewOperationsWithStableCode()
     {
+        LicenseGrant expiredGrant = LicenseTestData.Create(
+            validUntil: "2026-08-01T23:59:59Z",
+            graceUntil: "2026-08-08T23:59:59Z");
         var store = new RecordingLicenseStore(
-            LicenseTestData.Stored(
-                LicenseTestData.Create(
-                    validUntil: "2026-08-01T23:59:59Z",
-                    graceUntil: "2026-08-08T23:59:59Z"),
-                ValidBytes));
+            LicenseTestData.Stored(expiredGrant, ValidBytes));
         var service = LicenseServiceTestFactory.Create(
             store,
-            new StubVerifier(LicenseVerification.Invalid("NOT_USED")));
+            new StubVerifier(LicenseVerification.Valid(expiredGrant)));
 
         LicenseOperationBlockedException error = await Assert.ThrowsAsync<LicenseOperationBlockedException>(
             () => service.EnsureNewOperationsAllowedAsync(CancellationToken.None));
 
         Assert.Equal("LICENSE_EXPIRED_READ_ONLY", error.Code);
+    }
+
+    [Fact]
+    public async Task StoredDocumentIsReverifiedBeforeItsGrantIsEvaluated()
+    {
+        byte[] persisted = [21, 22, 23];
+        var verifier = new StubVerifier(
+            LicenseVerification.Valid(
+                LicenseTestData.Active(sequence: 9),
+                document: persisted,
+                channel: "QA",
+                keyId: "trusted-key"));
+        var service = LicenseServiceTestFactory.Create(
+            new RecordingLicenseStore(new StoredLicense(persisted)),
+            verifier);
+
+        LicenseStatus status = await service.GetStatusAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseState.Valid, status.State);
+        Assert.Equal(9, status.Grant!.Sequence);
+        Assert.Equal([21, 22, 23], Assert.Single(verifier.Documents));
+    }
+
+    [Fact]
+    public async Task InvalidPersistedDocumentFailsClosedWithoutAdvancingCheckpoint()
+    {
+        var checkpoint = new RecordingLicenseClockCheckpoint();
+        var service = LicenseServiceTestFactory.Create(
+            new RecordingLicenseStore(new StoredLicense(new byte[] { 31, 32, 33 })),
+            new StubVerifier(LicenseVerification.Invalid("SIGNATURE_INVALID")),
+            checkpoint: checkpoint);
+
+        LicenseStatus status = await service.GetStatusAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseState.Invalid, status.State);
+        Assert.False(status.AllowsNewOperations);
+        Assert.True(status.AllowsReadOnlyAccess);
+        Assert.Null(status.Grant);
+        Assert.Equal(0, checkpoint.CheckCalls);
+    }
+
+    [Fact]
+    public async Task PersistedHashMismatchIsReportedAsInvalidWithoutReadingProtectedState()
+    {
+        var identities = new RecordingDeviceLicenseIdentityStore();
+        var service = LicenseServiceTestFactory.Create(
+            new ThrowingLicenseStore(new LicensePersistenceIntegrityException()),
+            new StubVerifier(LicenseVerification.Invalid("NOT_USED")),
+            identities: identities);
+
+        LicenseStatus status = await service.GetStatusAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseState.Invalid, status.State);
+        Assert.False(status.AllowsNewOperations);
+        Assert.Equal(0, identities.GetOrCreateCalls);
+    }
+
+    [Fact]
+    public async Task ValidImportReplacesAnInvalidPersistedDocumentAsRecovery()
+    {
+        var store = new RecordingLicenseStore(
+            new StoredLicense(new byte[] { 41, 42, 43 }));
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(
+                LicenseVerification.Invalid("SIGNATURE_INVALID"),
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))));
+
+        LicenseStatus status = await service.ImportAsync(
+            new LicenseImportRequest([51, 52, 53]),
+            CancellationToken.None);
+
+        Assert.Equal(LicenseState.Valid, status.State);
+        Assert.Equal(1, store.ReplaceCalls);
+        Assert.Equal([51, 52, 53], store.Current!.Document.ToArray());
+    }
+
+    [Fact]
+    public async Task ValidImportRecoversFromAPersistedHashMismatch()
+    {
+        var store = new RecoverableIntegrityLicenseStore();
+        var service = LicenseServiceTestFactory.Create(
+            store,
+            new StubVerifier(
+                LicenseVerification.Valid(LicenseTestData.Active(sequence: 1))));
+
+        LicenseStatus status = await service.ImportAsync(
+            new LicenseImportRequest([61, 62, 63]),
+            CancellationToken.None);
+
+        Assert.Equal(LicenseState.Valid, status.State);
+        Assert.Equal(1, store.ReplaceCalls);
+        Assert.Equal([61, 62, 63], store.Current!.Document.ToArray());
     }
 }
