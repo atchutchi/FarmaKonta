@@ -1,5 +1,5 @@
-using System.Security.Cryptography;
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
 using System.Text;
 using Nofarma.Domain.Common;
 using Nofarma.Infrastructure.Licensing;

@@ -579,22 +579,22 @@ public sealed class SqliteInventoryStore(
     private static StockMovementRecord MapMovement(
         StockMovement movement,
         string requestFingerprint) => new()
-    {
-        Id = movement.Id.Value,
-        PharmacyId = movement.PharmacyId.Value,
-        ProductId = movement.ProductId.Value,
-        StockLotId = movement.LotId?.Value,
-        QuantityBase = movement.QuantityBase,
-        Type = (int)movement.Type,
-        Reason = movement.Reason,
-        SourceDocumentId = movement.SourceDocumentId?.Value,
-        UserId = movement.UserId.Value,
-        OccurredAtUtc = movement.OccurredUtc.Value,
-        IdempotencyKey = movement.IdempotencyKey,
-        RequestFingerprint = requestFingerprint,
-        CompensatesMovementId = movement.CompensatesMovementId?.Value,
-        ResultingLotBalance = movement.ResultingLotBalance
-    };
+        {
+            Id = movement.Id.Value,
+            PharmacyId = movement.PharmacyId.Value,
+            ProductId = movement.ProductId.Value,
+            StockLotId = movement.LotId?.Value,
+            QuantityBase = movement.QuantityBase,
+            Type = (int)movement.Type,
+            Reason = movement.Reason,
+            SourceDocumentId = movement.SourceDocumentId?.Value,
+            UserId = movement.UserId.Value,
+            OccurredAtUtc = movement.OccurredUtc.Value,
+            IdempotencyKey = movement.IdempotencyKey,
+            RequestFingerprint = requestFingerprint,
+            CompensatesMovementId = movement.CompensatesMovementId?.Value,
+            ResultingLotBalance = movement.ResultingLotBalance
+        };
 
     private static StockConfirmationResult MapResult(StockMovement movement) => new(
         movement.Id,

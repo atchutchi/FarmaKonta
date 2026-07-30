@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Nofarma.Application.Abstractions;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
-using Nofarma.Application.Inventory;
 using Nofarma.Application.Licensing;
 using Nofarma.Application.Sales;
 using Nofarma.Domain.Auditing;
