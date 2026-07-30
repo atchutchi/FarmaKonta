@@ -5,7 +5,7 @@ Executar a partir da raiz do repositório:
 ```powershell
 dotnet restore Nofarma.slnx --locked-mode
 dotnet format Nofarma.slnx --verify-no-changes --no-restore
-dotnet build Nofarma.slnx --configuration Release --no-restore -warnaserror
+dotnet build Nofarma.slnx --configuration Release --no-restore -warnaserror -p:NofarmaLicenseChannel=Unlicensed
 dotnet test Nofarma.slnx --configuration Release --no-build
 git diff --check
 git status --short
@@ -32,6 +32,28 @@ dotnet list Nofarma.slnx package --vulnerable --include-transitive
 ```
 
 O resultado esperado é zero testes falhados e nenhuma dependência vulnerável conhecida. O teste SQLite confirma uma versão igual ou superior a 3.50.2.
+
+## Licenciamento assinado
+
+Executar adicionalmente os testes do emissor e do conteúdo publicado:
+
+```powershell
+dotnet test tests/Nofarma.IntegrationTests/Nofarma.IntegrationTests.csproj --filter "FullyQualifiedName~QaIssuerTests|FullyQualifiedName~PublishedChannelTests|FullyQualifiedName~LicenseChannelScriptTests" --no-restore
+```
+
+Para produzir e validar um publish QA, escolher uma pasta absoluta nova ou
+vazia. O script não apaga uma pasta pré-existente:
+
+```powershell
+$qaOutput = [IO.Path]::GetFullPath((Join-Path $PWD "artifacts\license-qa"))
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-license-channel.ps1 -Channel QA -Output $qaOutput
+```
+
+O gate confirma a SPKI incorporada depois do build e do publish, rejeita a
+chave do canal oposto e pesquisa material privado, emissor, pedidos e licenças
+no output. O canal Commercial deve continuar a falhar com `NFLC001` enquanto a
+chave pública comercial não estiver provisionada. O procedimento completo
+está em [Licenciamento assinado](licensing.md).
 
 ## Verificação visual Windows
 

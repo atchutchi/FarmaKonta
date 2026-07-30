@@ -4,7 +4,7 @@ Sistema de gestão, stock, caixa e facturação para farmácias da Guiné-Bissau
 
 O produto é uma aplicação Windows nativa, offline-first, acompanhada por serviços cloud para sincronização, licenciamento, backups, actualizações e consulta remota.
 
-Estado actual: fundação técnica, identidade local e gestão inicial de inventário implementadas. A aplicação Windows permite configurar a farmácia, criar o administrador principal, guardar um código de recuperação offline, iniciar sessão, gerir utilizadores, produtos, fornecedores, stock por lote, compras e inventário inicial por Excel ou CSV.
+Estado actual: fundação técnica, identidade local, licenciamento assinado e gestão inicial de inventário implementados. A aplicação Windows permite configurar a farmácia, criar o administrador principal, guardar um código de recuperação offline, iniciar sessão, gerir utilizadores, activar uma licença por ficheiro, gerir produtos, fornecedores, stock por lote, compras e inventário inicial por Excel ou CSV.
 
 Documentos principais:
 
@@ -14,6 +14,7 @@ Documentos principais:
 - [Verificação da fundação](docs/development/verification.md)
 - [Identidade local e operação offline](docs/development/local-identity.md)
 - [Inventário, compras e importação inicial](docs/development/inventory.md)
+- [Licenciamento assinado e canais de release](docs/development/licensing.md)
 - [Modelo CSV de inventário](docs/development/inventory-import-template.csv)
 - [Atlas visual obrigatório](docs/design/previews/README.md)
 

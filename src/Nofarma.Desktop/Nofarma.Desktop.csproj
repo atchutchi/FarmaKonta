@@ -62,6 +62,13 @@
     </ItemGroup>
   </Target>
 
+  <Target
+    Name="RemoveCommercialLicenseKeySnapshot"
+    AfterTargets="CoreCompile"
+    Condition="'$(NofarmaLicenseChannel)' == 'Commercial' and '@(_NofarmaCommercialKeySnapshot)' != ''">
+    <Delete Files="@(_NofarmaCommercialKeySnapshot)" />
+  </Target>
+
   <ItemGroup>
     <Content Include="Assets\SplashScreen.scale-200.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.png" />

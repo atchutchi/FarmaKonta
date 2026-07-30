@@ -14,6 +14,10 @@ public interface IQaKeyProvisioningFaultInjector
 {
     bool SimulatesProcessTermination => false;
 
+    void BeforeManifestTemporaryCreate(string path)
+    {
+    }
+
     void BeforePublicCommit();
 
     void BeforeRollback();
@@ -44,6 +48,10 @@ public sealed class QaKeyStore
     public const string RotationConfirmation = "ROTATE-QA-KEY";
 
     private const int MaximumProtectedKeyBytes = 32 * 1024;
+    private const int MaximumManifestTemporaryCreateAttempts = 20;
+    private const int ManifestTemporaryCreateRetryDelayMilliseconds = 50;
+    private const int ErrorFileExistsHResult = unchecked((int)0x80070050);
+    private const int ErrorAlreadyExistsHResult = unchecked((int)0x800700B7);
     private const string NistP256Oid = "1.2.840.10045.3.1.7";
     private static readonly byte[] Entropy =
         Encoding.UTF8.GetBytes("ABIPTOM.Nofarma-QA.Issuer.Key.v1");
@@ -395,6 +403,11 @@ public sealed class QaKeyStore
             CleanupRecoveryArtifacts(manifest);
         }
         catch (Exception) when (_faultInjector.SimulatesProcessTermination)
+        {
+            throw;
+        }
+        catch (QaIssuerException exception) when (
+            exception.Code == "QA_ROTATION_RECOVERY_REQUIRED")
         {
             throw;
         }
@@ -879,7 +892,10 @@ public sealed class QaKeyStore
         byte[] json = JsonSerializer.SerializeToUtf8Bytes(manifest);
         try
         {
-            WriteNewPrivateFile(temporaryPath, json);
+            WriteManifestTemporaryWithRetry(
+                temporaryPath,
+                json,
+                recoveryPaths);
             File.Move(temporaryPath, manifestPath, overwrite: false);
             _pathSecurity.ProtectPrivateFile(manifestPath);
         }
@@ -888,6 +904,40 @@ public sealed class QaKeyStore
             CryptographicOperations.ZeroMemory(json);
         }
     }
+
+    private void WriteManifestTemporaryWithRetry(
+        string temporaryPath,
+        ReadOnlySpan<byte> contents,
+        IReadOnlyList<string> recoveryPaths)
+    {
+        for (int attempt = 1;
+             attempt <= MaximumManifestTemporaryCreateAttempts;
+             attempt++)
+        {
+            try
+            {
+                _faultInjector.BeforeManifestTemporaryCreate(temporaryPath);
+                WriteNewPrivateFile(temporaryPath, contents);
+                return;
+            }
+            catch (IOException exception) when (
+                IsExclusiveCreateCollision(exception))
+            {
+                bool recoveryArtifactIsVisible = recoveryPaths.Any(File.Exists);
+                if (recoveryArtifactIsVisible
+                    || attempt == MaximumManifestTemporaryCreateAttempts)
+                {
+                    throw RecoveryRequired(exception);
+                }
+
+                Thread.Sleep(TimeSpan.FromMilliseconds(
+                    ManifestTemporaryCreateRetryDelayMilliseconds));
+            }
+        }
+    }
+
+    private static bool IsExclusiveCreateCollision(IOException exception) =>
+        exception.HResult is ErrorFileExistsHResult or ErrorAlreadyExistsHResult;
 
     private void CopyRecoveryFile(
         string sourcePath,

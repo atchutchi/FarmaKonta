@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using Nofarma.Domain.Licensing;
 
 namespace Nofarma.Licensing.Qa;
@@ -314,6 +316,280 @@ public static class QaPublicKeyValidator
     }
 }
 
+public static class QaPublishedKeyValidator
+{
+    private const int MaximumPublicKeyFileBytes = 8 * 1024;
+    private const int MaximumAssemblyBytes = 512 * 1024 * 1024;
+    private const string NistP256Oid = "1.2.840.10045.3.1.7";
+    private const string PublicKeyResourceName =
+        "Nofarma.Desktop.LicensingPublicKey";
+
+    public static LicenseChannelKeyValidation ValidateAbsent(string assemblyPath)
+    {
+        byte[] assemblyBytes = [];
+        try
+        {
+            string fullPath = Path.GetFullPath(assemblyPath);
+            using var stream = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read);
+            if (stream.Length < 1 || stream.Length > MaximumAssemblyBytes)
+            {
+                return Failure("NFLC006", "The channel assembly is unavailable or invalid.");
+            }
+
+            assemblyBytes = new byte[checked((int)stream.Length)];
+            stream.ReadExactly(assemblyBytes);
+            Assembly assembly = Assembly.Load(assemblyBytes);
+            bool containsPublicKey = assembly
+                .GetManifestResourceNames()
+                .Contains(PublicKeyResourceName, StringComparer.Ordinal);
+            return containsPublicKey
+                ? Failure(
+                    "NFLC009",
+                    "An Unlicensed assembly contains a licensing public key.")
+                : new LicenseChannelKeyValidation(
+                    true,
+                    null,
+                    "The Unlicensed assembly contains no licensing public key.");
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or ArgumentException
+                or BadImageFormatException
+                or FileLoadException)
+        {
+            return Failure("NFLC006", "The channel assembly is unavailable or invalid.");
+        }
+        finally
+        {
+            if (assemblyBytes.Length > 0)
+            {
+                CryptographicOperations.ZeroMemory(assemblyBytes);
+            }
+        }
+    }
+
+    public static LicenseChannelKeyValidation Validate(
+        string assemblyPath,
+        string expectedPublicKeyPath,
+        string? oppositePublicKeyPath)
+    {
+        if (!TryReadPublicKey(
+                expectedPublicKeyPath,
+                out ECParameters expected,
+                out _))
+        {
+            return Failure(
+                "NFLC006",
+                "The expected channel public key is unavailable or invalid.");
+        }
+
+        ECParameters? opposite = null;
+        if (!string.IsNullOrWhiteSpace(oppositePublicKeyPath))
+        {
+            if (!TryReadPublicKey(
+                    oppositePublicKeyPath,
+                    out ECParameters oppositeParameters,
+                    out _))
+            {
+                return Failure(
+                    "NFLC006",
+                    "The opposite channel public key is unavailable or invalid.");
+            }
+
+            opposite = oppositeParameters;
+        }
+
+        if (!TryReadEmbeddedPublicKey(
+                assemblyPath,
+                out ECParameters embedded))
+        {
+            return Failure(
+                "NFLC006",
+                "The embedded licensing public key is unavailable or invalid.");
+        }
+
+        if (!AreEqual(expected, embedded))
+        {
+            return Failure(
+                "NFLC007",
+                "The embedded licensing public key does not match the fixed channel key.");
+        }
+
+        if (opposite is { } oppositeParametersValue
+            && AreEqual(oppositeParametersValue, embedded))
+        {
+            return Failure(
+                "NFLC008",
+                "The embedded licensing public key matches the opposite channel key.");
+        }
+
+        return new LicenseChannelKeyValidation(
+            true,
+            null,
+            "The embedded licensing public key matches the fixed channel key.");
+    }
+
+    private static bool TryReadPublicKey(
+        string path,
+        out ECParameters parameters,
+        out byte[] subjectPublicKey)
+    {
+        parameters = default;
+        subjectPublicKey = [];
+        try
+        {
+            string fullPath = Path.GetFullPath(path);
+            using var stream = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read);
+            if (stream.Length < 1 || stream.Length > MaximumPublicKeyFileBytes)
+            {
+                return false;
+            }
+
+            byte[] encoded = new byte[checked((int)stream.Length)];
+            stream.ReadExactly(encoded);
+            try
+            {
+                subjectPublicKey = Convert.FromBase64String(
+                    Encoding.ASCII.GetString(encoded));
+                return TryDecodePublicKey(subjectPublicKey, out parameters);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(encoded);
+            }
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or ArgumentException
+                or FormatException
+                or CryptographicException
+                or PlatformNotSupportedException)
+        {
+            parameters = default;
+            if (subjectPublicKey.Length > 0)
+            {
+                CryptographicOperations.ZeroMemory(subjectPublicKey);
+            }
+
+            subjectPublicKey = [];
+            return false;
+        }
+    }
+
+    private static bool TryReadEmbeddedPublicKey(
+        string assemblyPath,
+        out ECParameters parameters)
+    {
+        parameters = default;
+        byte[] assemblyBytes = [];
+        byte[] encoded = [];
+        byte[] subjectPublicKey = [];
+        try
+        {
+            string fullPath = Path.GetFullPath(assemblyPath);
+            using var stream = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read);
+            if (stream.Length < 1 || stream.Length > MaximumAssemblyBytes)
+            {
+                return false;
+            }
+
+            assemblyBytes = new byte[checked((int)stream.Length)];
+            stream.ReadExactly(assemblyBytes);
+            Assembly assembly = Assembly.Load(assemblyBytes);
+            using Stream? resource = assembly.GetManifestResourceStream(
+                PublicKeyResourceName);
+            if (resource is null
+                || resource.Length < 1
+                || resource.Length > MaximumPublicKeyFileBytes)
+            {
+                return false;
+            }
+
+            encoded = new byte[checked((int)resource.Length)];
+            resource.ReadExactly(encoded);
+            subjectPublicKey = Convert.FromBase64String(
+                Encoding.ASCII.GetString(encoded));
+            return TryDecodePublicKey(subjectPublicKey, out parameters);
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or ArgumentException
+                or FormatException
+                or CryptographicException
+                or BadImageFormatException
+                or FileLoadException
+                or PlatformNotSupportedException)
+        {
+            parameters = default;
+            return false;
+        }
+        finally
+        {
+            if (assemblyBytes.Length > 0)
+            {
+                CryptographicOperations.ZeroMemory(assemblyBytes);
+            }
+
+            if (encoded.Length > 0)
+            {
+                CryptographicOperations.ZeroMemory(encoded);
+            }
+
+            if (subjectPublicKey.Length > 0)
+            {
+                CryptographicOperations.ZeroMemory(subjectPublicKey);
+            }
+        }
+    }
+
+    private static bool TryDecodePublicKey(
+        ReadOnlySpan<byte> subjectPublicKey,
+        out ECParameters parameters)
+    {
+        parameters = default;
+        using ECDsa key = ECDsa.Create();
+        key.ImportSubjectPublicKeyInfo(subjectPublicKey, out int bytesRead);
+        parameters = key.ExportParameters(includePrivateParameters: false);
+        return bytesRead == subjectPublicKey.Length
+            && key.KeySize == 256
+            && parameters.Q.X is { Length: 32 }
+            && parameters.Q.Y is { Length: 32 }
+            && string.Equals(
+                parameters.Curve.Oid.Value,
+                NistP256Oid,
+                StringComparison.Ordinal);
+    }
+
+    private static bool AreEqual(ECParameters first, ECParameters second) =>
+        first.Q.X is not null
+        && first.Q.Y is not null
+        && second.Q.X is not null
+        && second.Q.Y is not null
+        && first.Q.X.Length == second.Q.X.Length
+        && first.Q.Y.Length == second.Q.Y.Length
+        && CryptographicOperations.FixedTimeEquals(first.Q.X, second.Q.X)
+        && CryptographicOperations.FixedTimeEquals(first.Q.Y, second.Q.Y);
+
+    private static LicenseChannelKeyValidation Failure(
+        string code,
+        string message) => new(false, code, message);
+}
+
 public static class QaCli
 {
     public static int Run(
@@ -341,6 +617,8 @@ public static class QaCli
                 "provision" => RunProvision(options, input, output),
                 "issue" => RunIssue(options, output),
                 "validate-commercial-key" => RunCommercialValidation(options, error),
+                "validate-published-key" => RunPublishedValidation(options, error),
+                "scan-published-output" => RunPublishedOutputScan(options, error),
                 _ => throw Usage("The command is not supported.")
             };
         }
@@ -430,6 +708,52 @@ public static class QaCli
                 options.Required("qa-public"),
                 options.Required("commercial-public"),
                 options.Required("validated-output"));
+        if (result.IsValid)
+        {
+            return 0;
+        }
+
+        error.WriteLine($"{result.Code}: {result.Message}");
+        return 2;
+    }
+
+    private static int RunPublishedValidation(OptionSet options, TextWriter error)
+    {
+        options.RequireOnly(
+            "assembly",
+            "expected-public",
+            "opposite-public",
+            "expect-absent");
+        bool expectAbsent = options.HasFlag("expect-absent");
+        if (expectAbsent
+            && (options.Optional("expected-public") is not null
+                || options.Optional("opposite-public") is not null))
+        {
+            throw Usage(
+                "The --expect-absent option cannot be combined with public keys.");
+        }
+
+        LicenseChannelKeyValidation result = expectAbsent
+            ? QaPublishedKeyValidator.ValidateAbsent(options.Required("assembly"))
+            : QaPublishedKeyValidator.Validate(
+                options.Required("assembly"),
+                options.Required("expected-public"),
+                options.Optional("opposite-public"));
+        if (result.IsValid)
+        {
+            return 0;
+        }
+
+        error.WriteLine($"{result.Code}: {result.Message}");
+        return 2;
+    }
+
+    private static int RunPublishedOutputScan(OptionSet options, TextWriter error)
+    {
+        options.RequireOnly("root", "opposite-public");
+        LicenseChannelKeyValidation result = QaPublishedOutputScanner.Validate(
+            options.Required("root"),
+            options.Optional("opposite-public"));
         if (result.IsValid)
         {
             return 0;
@@ -539,7 +863,11 @@ public static class QaCli
 
                 string name = token[2..];
                 string? value = null;
-                if (!string.Equals(name, "rotate", StringComparison.Ordinal))
+                if (!string.Equals(name, "rotate", StringComparison.Ordinal)
+                    && !string.Equals(
+                        name,
+                        "expect-absent",
+                        StringComparison.Ordinal))
                 {
                     if (index + 1 >= values.Length
                         || values[index + 1].StartsWith("--", StringComparison.Ordinal))

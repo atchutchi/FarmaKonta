@@ -14,4 +14,7 @@
     <Project Path="tests/Nofarma.IntegrationTests/Nofarma.IntegrationTests.csproj" />
     <Project Path="tests/Nofarma.UnitTests/Nofarma.UnitTests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Nofarma.Licensing.Qa/Nofarma.Licensing.Qa.csproj" />
+  </Folder>
 </Solution>

@@ -13,6 +13,7 @@ using Nofarma.Licensing.Qa;
 
 namespace Nofarma.IntegrationTests.Licensing;
 
+[Collection(PublishedChannelTestGroup.Name)]
 public sealed class QaIssuerTests
 {
     private static readonly DateTimeOffset From = Utc("2026-08-01T00:00:00Z");
@@ -26,6 +27,10 @@ public sealed class QaIssuerTests
         new(Guid.Parse("33333333-3333-3333-3333-333333333333"));
     private const string DeviceKeyThumbprint =
         "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    private const int ErrorFileExistsHResult = unchecked((int)0x80070050);
+    private const int ErrorAlreadyExistsHResult = unchecked((int)0x800700B7);
+    private const int AccessDeniedHResult = unchecked((int)0x80070005);
+    private const int DiskFullHResult = unchecked((int)0x80070070);
 
     [Fact]
     public void CommercialBuildRejectsCryptographicallyIdenticalQaKeyAfterBase64Reencoding()
@@ -610,6 +615,122 @@ public sealed class QaIssuerTests
         QaIssuerException reentrancy = Assert.IsType<QaIssuerException>(
             error.InnerException);
         Assert.Equal("QA_KEY_LOCK_REENTRANCY", reentrancy.Code);
+    }
+
+    [Fact]
+    public void TransientInvisibleManifestCollisionIsRetried()
+    {
+        using var directory = new TemporaryDirectory(
+            "nofarma-qa-manifest-transient");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        byte[] previousPublicKey = initialStore.GetPublicKey().ToArray();
+        var fault = new ManifestTemporaryCreateFault(
+            failures: 1,
+            ErrorFileExistsHResult,
+            createVisibleArtifact: false);
+        var store = new QaKeyStore(privateKeyPath, protector, fault);
+
+        store.Provision(
+            publicKeyPath,
+            rotate: true,
+            new StringReader("ROTATE-QA-KEY"));
+
+        Assert.Equal(2, fault.Attempts);
+        Assert.False(CryptographicOperations.FixedTimeEquals(
+            previousPublicKey,
+            store.GetPublicKey().Span));
+        AssertNoRecoveryArtifacts(privateKeyPath, publicKeyPath);
+    }
+
+    [Fact]
+    public void PersistentInvisibleManifestCollisionFailsRecoveryRequired()
+    {
+        using var directory = new TemporaryDirectory(
+            "nofarma-qa-manifest-persistent");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        var fault = new ManifestTemporaryCreateFault(
+            failures: int.MaxValue,
+            ErrorAlreadyExistsHResult,
+            createVisibleArtifact: false);
+        var store = new QaKeyStore(privateKeyPath, protector, fault);
+
+        QaIssuerException error = Assert.Throws<QaIssuerException>(() =>
+            store.Provision(
+                publicKeyPath,
+                rotate: true,
+                new StringReader("ROTATE-QA-KEY")));
+
+        Assert.Equal("QA_ROTATION_RECOVERY_REQUIRED", error.Code);
+        Assert.Equal(20, fault.Attempts);
+        Assert.Same(fault.LastException, error.InnerException);
+    }
+
+    [Fact]
+    public void ObservableManifestCollisionPreservesArtifactAndFailsClosed()
+    {
+        using var directory = new TemporaryDirectory(
+            "nofarma-qa-manifest-observable");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        var fault = new ManifestTemporaryCreateFault(
+            failures: 1,
+            ErrorFileExistsHResult,
+            createVisibleArtifact: true);
+        var store = new QaKeyStore(privateKeyPath, protector, fault);
+
+        QaIssuerException error = Assert.Throws<QaIssuerException>(() =>
+            store.Provision(
+                publicKeyPath,
+                rotate: true,
+                new StringReader("ROTATE-QA-KEY")));
+
+        Assert.Equal("QA_ROTATION_RECOVERY_REQUIRED", error.Code);
+        Assert.Equal(1, fault.Attempts);
+        Assert.Same(fault.LastException, error.InnerException);
+        Assert.Equal(
+            ManifestTemporaryCreateFault.Sentinel,
+            File.ReadAllText(fault.ManifestTemporaryPath!));
+    }
+
+    [Theory]
+    [InlineData(AccessDeniedHResult)]
+    [InlineData(DiskFullHResult)]
+    public void NonCollisionManifestIoFailureIsNotRetried(int hResult)
+    {
+        using var directory = new TemporaryDirectory(
+            "nofarma-qa-manifest-io-failure");
+        string privateKeyPath = Path.Combine(directory.Path, "qa-signing-key.bin");
+        string publicKeyPath = Path.Combine(directory.Path, "qa-public.spki.b64");
+        var protector = new TestProtector();
+        var initialStore = new QaKeyStore(privateKeyPath, protector);
+        initialStore.Provision(publicKeyPath, rotate: false, TextReader.Null);
+        var fault = new ManifestTemporaryCreateFault(
+            failures: 1,
+            hResult,
+            createVisibleArtifact: false);
+        var store = new QaKeyStore(privateKeyPath, protector, fault);
+
+        QaIssuerException error = Assert.Throws<QaIssuerException>(() =>
+            store.Provision(
+                publicKeyPath,
+                rotate: true,
+                new StringReader("ROTATE-QA-KEY")));
+
+        Assert.Equal("QA_ROTATION_FAILED", error.Code);
+        Assert.Equal(1, fault.Attempts);
+        IOException failure = Assert.IsType<IOException>(error.InnerException);
+        Assert.Equal(hResult, failure.HResult);
     }
 
     [Fact]
@@ -1420,6 +1541,48 @@ public sealed class QaIssuerTests
         }
 
         public void AfterPrivateCommit() => Reenter();
+    }
+
+    private sealed class ManifestTemporaryCreateFault(
+        int failures,
+        int hResult,
+        bool createVisibleArtifact) : IQaKeyProvisioningFaultInjector
+    {
+        public const string Sentinel = "preserve-manifest-temporary";
+
+        public int Attempts { get; private set; }
+
+        public IOException? LastException { get; private set; }
+
+        public string? ManifestTemporaryPath { get; private set; }
+
+        public void BeforeManifestTemporaryCreate(string path)
+        {
+            Attempts++;
+            ManifestTemporaryPath = path;
+            if (Attempts > failures)
+            {
+                return;
+            }
+
+            if (createVisibleArtifact)
+            {
+                File.WriteAllText(path, Sentinel);
+            }
+
+            LastException = new IOException(
+                "Injected exclusive manifest creation collision.",
+                hResult);
+            throw LastException;
+        }
+
+        public void BeforePublicCommit()
+        {
+        }
+
+        public void BeforeRollback()
+        {
+        }
     }
 
     private sealed class BlockingKeyStoreLock : IQaKeyStoreLock, IDisposable
