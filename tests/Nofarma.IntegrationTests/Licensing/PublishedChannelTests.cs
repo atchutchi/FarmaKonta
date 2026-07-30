@@ -105,14 +105,107 @@ public sealed class PublishedChannelTests(PublishedFiles publishedFiles)
 [Collection(PublishedChannelTestGroup.Name)]
 public sealed class LicenseChannelScriptTests
 {
-    public static TheoryData<string> PemHeaders { get; } = new()
+    public static TheoryData<string, string, bool> PrivateHeaderCases
     {
-        string.Concat("-----BEGIN ", "PRIVATE KEY-----"),
-        string.Concat("-----BEGIN ENCRYPTED ", "PRIVATE KEY-----"),
-        string.Concat("-----BEGIN RSA ", "PRIVATE KEY-----"),
-        string.Concat("-----BEGIN EC ", "PRIVATE KEY-----"),
-        string.Concat("-----BEGIN OPENSSH ", "PRIVATE KEY-----")
-    };
+        get
+        {
+            string[] headers =
+            [
+                string.Concat(
+                    "-----BEGIN ",
+                    "PRIVATE KEY-----"),
+                string.Concat(
+                    "-----BEGIN ENCRYPTED ",
+                    "PRIVATE KEY-----"),
+                string.Concat(
+                    "-----BEGIN RSA ",
+                    "PRIVATE KEY-----"),
+                string.Concat(
+                    "-----BEGIN EC ",
+                    "PRIVATE KEY-----"),
+                string.Concat(
+                    "-----BEGIN OPENSSH ",
+                    "PRIVATE KEY-----"),
+                string.Concat(
+                    "-----BEGIN DSA ",
+                    "PRIVATE KEY-----"),
+                string.Concat(
+                    "-----BEGIN ED25519 ",
+                    "PRIVATE KEY-----"),
+                string.Concat(
+                    "-----BEGIN PGP ",
+                    "PRIVATE KEY BLOCK-----"),
+                string.Concat(
+                    "---- BEGIN SSH2 ENCRYPTED ",
+                    "PRIVATE KEY ----")
+            ];
+            string[] encodingNames =
+            [
+                "utf8",
+                "utf16le",
+                "utf16be",
+                "utf32le",
+                "utf32be"
+            ];
+            var cases = new TheoryData<string, string, bool>();
+            foreach (string header in headers)
+            {
+                foreach (string encodingName in encodingNames)
+                {
+                    cases.Add(header, encodingName, false);
+                    cases.Add(header, encodingName, true);
+                }
+            }
+
+            return cases;
+        }
+    }
+
+    public static TheoryData<string, bool> EncodedTextCases
+    {
+        get
+        {
+            var cases = new TheoryData<string, bool>();
+            foreach (string encodingName in new[]
+                     {
+                         "utf8",
+                         "utf16le",
+                         "utf16be",
+                         "utf32le",
+                         "utf32be"
+                     })
+            {
+                cases.Add(encodingName, false);
+                cases.Add(encodingName, true);
+            }
+
+            return cases;
+        }
+    }
+
+    public static TheoryData<string, bool, bool> OppositeKeyTextCases
+    {
+        get
+        {
+            var cases = new TheoryData<string, bool, bool>();
+            foreach (string encodingName in new[]
+                     {
+                         "utf8",
+                         "utf16le",
+                         "utf16be",
+                         "utf32le",
+                         "utf32be"
+                     })
+            {
+                cases.Add(encodingName, false, false);
+                cases.Add(encodingName, false, true);
+                cases.Add(encodingName, true, false);
+                cases.Add(encodingName, true, true);
+            }
+
+            return cases;
+        }
+    }
 
     [Fact]
     public void VerificationScriptRejectsRelativeOutput()
@@ -214,25 +307,16 @@ public sealed class LicenseChannelScriptTests
     }
 
     [Theory]
-    [InlineData("utf8", false)]
-    [InlineData("utf8", true)]
-    [InlineData("utf16le", false)]
-    [InlineData("utf16le", true)]
-    [InlineData("utf16be", false)]
-    [InlineData("utf16be", true)]
-    [InlineData("utf32le", false)]
-    [InlineData("utf32le", true)]
-    [InlineData("utf32be", false)]
-    [InlineData("utf32be", true)]
-    public void PublishedOutputScannerRejectsEncodedSecretAcrossBufferBoundary(
+    [MemberData(nameof(PrivateHeaderCases))]
+    public void PublishedOutputScannerRejectsPrivateHeaderAcrossBufferBoundary(
+        string header,
         string encodingName,
         bool includeBom)
     {
         using var output = new SafeTemporaryDirectory(
             "nofarma-encoded-secret");
         Encoding encoding = MarkerEncoding(encodingName, includeBom);
-        byte[] marker = encoding.GetBytes(
-            string.Concat("-----BEGIN ", "PRIVATE KEY-----"));
+        byte[] marker = encoding.GetBytes(header);
         byte[] preamble = includeBom ? encoding.GetPreamble() : [];
         int markerStart = (64 * 1024) - Math.Max(1, marker.Length / 2);
         byte[] contents = Enumerable
@@ -274,23 +358,43 @@ public sealed class LicenseChannelScriptTests
         Assert.Equal("NFLC010", result.Code);
     }
 
-    [Theory]
-    [MemberData(nameof(PemHeaders))]
-    public void PublishedOutputScannerRejectsUtf16PemHeaders(string header)
+    [Fact]
+    public void PublishedOutputScannerAcceptsPrivateKeyPhraseInUtf16Binary()
     {
         using var output = new SafeTemporaryDirectory(
-            "nofarma-utf16-pem-header");
+            "nofarma-utf16-private-key-binary");
         byte[] contents = new UnicodeEncoding(
             bigEndian: false,
             byteOrderMark: false)
-            .GetBytes(header);
+            .GetBytes("ordinary binary metadata PRIVATE KEY category");
         File.WriteAllBytes(Path.Combine(output.Path, "renamed.bin"), contents);
 
         LicenseChannelKeyValidation result =
             QaPublishedOutputScanner.Validate(output.Path);
 
-        Assert.False(result.IsValid);
-        Assert.Equal("NFLC010", result.Code);
+        Assert.True(result.IsValid, result.Message);
+    }
+
+    [Fact]
+    public void PublishedOutputScannerAcceptsPrivateKeyAfterHeaderLine()
+    {
+        using var output = new SafeTemporaryDirectory(
+            "nofarma-private-key-next-line");
+        string contents = string.Concat(
+            "-----BEGIN PUBLIC MATERIAL-----",
+            Environment.NewLine,
+            "PRIVATE KEY");
+        File.WriteAllBytes(
+            Path.Combine(output.Path, "renamed.bin"),
+            new UnicodeEncoding(
+                bigEndian: false,
+                byteOrderMark: false)
+                .GetBytes(contents));
+
+        LicenseChannelKeyValidation result =
+            QaPublishedOutputScanner.Validate(output.Path);
+
+        Assert.True(result.IsValid, result.Message);
     }
 
     [Fact]
@@ -328,6 +432,7 @@ public sealed class LicenseChannelScriptTests
     [InlineData("private.p8")]
     [InlineData("private.p12")]
     [InlineData("private.pfx")]
+    [InlineData("private.ppk")]
     [InlineData("private.snk")]
     [InlineData("qa-signing-key.bin")]
     [InlineData("Nofarma.Licensing.Qa.dll")]
@@ -396,6 +501,105 @@ public sealed class LicenseChannelScriptTests
 
         Assert.False(result.IsValid);
         Assert.Equal("NFLC010", result.Code);
+    }
+
+    [Theory]
+    [MemberData(nameof(EncodedTextCases))]
+    public void PublishedOutputScannerRejectsRenamedPuttyPrivateKey(
+        string encodingName,
+        bool includeBom)
+    {
+        using var output = new SafeTemporaryDirectory(
+            "nofarma-putty-private-key");
+        Encoding encoding = MarkerEncoding(encodingName, includeBom);
+        string putty = string.Join(
+            "\r\n",
+            string.Concat("PuTTY-User-", "Key-File-3: ssh-ed25519"),
+            "Encryption: none",
+            "Comment: regression",
+            "Public-Lines: 1",
+            "AAAA",
+            string.Concat("Private-", "Lines: 1"),
+            "AAAA");
+        byte[] marker = encoding.GetBytes(putty);
+        byte[] preamble = includeBom ? encoding.GetPreamble() : [];
+        int markerStart = (64 * 1024) - Math.Max(1, marker.Length / 3);
+        byte[] contents = Enumerable
+            .Repeat((byte)0x7F, markerStart + marker.Length + 32)
+            .ToArray();
+        preamble.CopyTo(contents, 0);
+        marker.CopyTo(contents, markerStart);
+        File.WriteAllBytes(Path.Combine(output.Path, "renamed.bin"), contents);
+
+        LicenseChannelKeyValidation result =
+            QaPublishedOutputScanner.Validate(output.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Equal("NFLC010", result.Code);
+    }
+
+    [Fact]
+    public void PublishedOutputScannerAcceptsDistantPuttyMarkers()
+    {
+        using var output = new SafeTemporaryDirectory(
+            "nofarma-distant-putty-markers");
+        string contents = string.Concat(
+            string.Concat("PuTTY-User-", "Key-File-3: ssh-ed25519"),
+            new string('A', 20 * 1024),
+            string.Concat("Private-", "Lines: 1"));
+        File.WriteAllText(Path.Combine(output.Path, "renamed.bin"), contents);
+
+        LicenseChannelKeyValidation result =
+            QaPublishedOutputScanner.Validate(output.Path);
+
+        Assert.True(result.IsValid, result.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(OppositeKeyTextCases))]
+    public void PublishedOutputScannerRejectsNormalizedOppositeKeyInText(
+        string encodingName,
+        bool includeBom,
+        bool includeWhitespace)
+    {
+        using var directory = new SafeTemporaryDirectory(
+            "nofarma-normalized-opposite-key");
+        string publish = Path.Combine(directory.Path, "publish");
+        Directory.CreateDirectory(publish);
+        using ECDsa oppositeKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        byte[] oppositePublicKey = oppositeKey.ExportSubjectPublicKeyInfo();
+        string oppositeBase64 = Convert.ToBase64String(oppositePublicKey);
+        string oppositePath = Path.Combine(directory.Path, "opposite.spki.b64");
+        File.WriteAllText(oppositePath, oppositeBase64);
+        string represented = includeWhitespace
+            ? AddArbitraryWhitespace(oppositeBase64)
+            : oppositeBase64;
+        Encoding encoding = MarkerEncoding(encodingName, includeBom);
+        byte[] preamble = includeBom ? encoding.GetPreamble() : [];
+        File.WriteAllBytes(
+            Path.Combine(publish, "renamed.txt"),
+            [.. preamble, .. encoding.GetBytes(represented)]);
+
+        LicenseChannelKeyValidation result =
+            QaPublishedOutputScanner.Validate(publish, oppositePath);
+
+        Assert.False(result.IsValid);
+        Assert.Equal("NFLC010", result.Code);
+    }
+
+    private static string AddArbitraryWhitespace(string value)
+    {
+        var result = new StringBuilder(value.Length + 32);
+        for (int index = 0; index < value.Length; index++)
+        {
+            result.Append(value[index]);
+            if ((index + 1) % 13 == 0)
+            {
+                result.Append("\r\n \t");
+            }
+        }
+
+        return result.ToString();
     }
 
     private static Encoding MarkerEncoding(

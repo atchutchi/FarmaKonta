@@ -97,15 +97,27 @@ ausência completa do recurso.
 O publish é ainda pesquisado por nomes do emissor, extensões de chaves
 privadas, pedidos, licenças emitidas e padrões textuais de segredos. O output
 final não pode conter `Nofarma.Licensing.Qa`, `qa-signing-key.bin`, `.p8`,
-`.p12`, `.pfx`, `.pem`, `.snk`, `.key`, `.nofarma-request` ou
+`.p12`, `.pfx`, `.pem`, `.ppk`, `.snk`, `.key`, `.nofarma-request` ou
 `.nofarma-license`.
 
 O scanner lê todos os ficheiros em streaming com um buffer único de 64 KiB.
-Reconhece cabeçalhos PEM, campos de credenciais e nomes internos em UTF-8,
-UTF-16LE, UTF-16BE, UTF-32LE e UTF-32BE, com ou sem BOM. A frase genérica
-`PRIVATE KEY` é pesquisada em ASCII em todos os ficheiros e nas codificações
-multibyte dentro de ficheiros textuais. A SPKI do canal oposto é rejeitada em
-DER raw e em base64 nas mesmas codificações.
+Reconhece semanticamente qualquer cabeçalho privado que comece por
+`-----BEGIN` ou `---- BEGIN`.
+O mesmo cabeçalho tem de conter `PRIVATE KEY` na mesma linha dentro de uma
+janela curta. A regra não enumera algoritmos. Também
+reconhece conteúdo PuTTY renomeado quando os marcadores `PuTTY-User-` mais
+`Key-File-` e `Private-` mais `Lines:` aparecem dentro do limite definido para
+o formato. As duas regras funcionam em UTF-8,
+UTF-16LE, UTF-16BE, UTF-32LE e UTF-32BE, com ou sem BOM e através de fronteiras
+do buffer.
+
+A frase genérica `PRIVATE KEY` é pesquisada em ASCII em todos os ficheiros e
+nas codificações multibyte dentro de ficheiros textuais. A SPKI do canal oposto
+é rejeitada em DER raw e em base64 contínua nas mesmas codificações. Nos
+ficheiros textuais abrangidos pelo limite de 8 MiB, o scanner também normaliza
+whitespace e rejeita a base64 dividida por linhas, mesmo sem BOM. A primeira
+passagem lazy valida todos os nomes antes da leitura e a segunda repete essa
+validação antes de abrir cada ficheiro.
 
 Imediatamente antes do publish, o script volta a verificar todos os componentes
 existentes do caminho contra reparse points e confirma que o output continua

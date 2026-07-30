@@ -1122,7 +1122,17 @@ public sealed class QaIssuerTests
             "qa-signing-key"
         ];
         var forbiddenExtensions = new HashSet<string>(
-            [".p8", ".pfx", ".p12", ".pem", ".key", ".nofarma-license", ".nofarma-request"],
+            [
+                ".p8",
+                ".pfx",
+                ".p12",
+                ".pem",
+                ".ppk",
+                ".snk",
+                ".key",
+                ".nofarma-license",
+                ".nofarma-request"
+            ],
             StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain(
             trackedPaths,
@@ -1143,6 +1153,59 @@ public sealed class QaIssuerTests
         publicKey.ImportSubjectPublicKeyInfo(publicSpki, out int bytesRead);
         Assert.Equal(publicSpki.Length, bytesRead);
         Assert.Equal(256, publicKey.KeySize);
+    }
+
+    [Theory]
+    [InlineData("pgp")]
+    [InlineData("ssh2")]
+    [InlineData("putty")]
+    public void TrackedWorktreePolicyRecognizesPrivateTextFormats(string format)
+    {
+        using var directory = new TemporaryDirectory(
+            "nofarma-private-text-format");
+        string content = format switch
+        {
+            "pgp" => string.Concat(
+                "-----BEGIN PGP ",
+                "PRIVATE KEY BLOCK-----"),
+            "ssh2" => string.Concat(
+                "---- BEGIN SSH2 ENCRYPTED ",
+                "PRIVATE KEY ----"),
+            "putty" => string.Join(
+                "\r\n",
+                string.Concat("PuTTY-User-", "Key-File-3: ssh-ed25519"),
+                "Encryption: none",
+                string.Concat("Private-", "Lines: 1"),
+                "AAAA"),
+            _ => throw new ArgumentOutOfRangeException(nameof(format))
+        };
+        string path = Path.Combine(directory.Path, "renamed.bin");
+        File.WriteAllText(path, content);
+
+        Assert.True(ContainsPrivateKeyMaterial(path));
+    }
+
+    [Fact]
+    public void TrackedWorktreePolicyRecognizesDsaPrivateKey()
+    {
+        using var directory = new TemporaryDirectory(
+            "nofarma-dsa-private-key");
+        using DSA dsa = DSA.Create(1024);
+        string derPath = Path.Combine(directory.Path, "renamed-der.bin");
+        string pemPath = Path.Combine(directory.Path, "renamed-pem.bin");
+        byte[] der = dsa.ExportPkcs8PrivateKey();
+        try
+        {
+            File.WriteAllBytes(derPath, der);
+            File.WriteAllText(pemPath, dsa.ExportPkcs8PrivateKeyPem());
+
+            Assert.True(ContainsPrivateKeyMaterial(derPath));
+            Assert.True(ContainsPrivateKeyMaterial(pemPath));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(der);
+        }
     }
 
     private static string[] TrackedPaths(string repoRoot)
@@ -1173,16 +1236,8 @@ public sealed class QaIssuerTests
         try
         {
             string text = Encoding.UTF8.GetString(contents);
-            string[] privatePemMarkers =
-            [
-                string.Concat("-----BEGIN ", "PRIVATE KEY-----"),
-                string.Concat("-----BEGIN ENCRYPTED ", "PRIVATE KEY-----"),
-                string.Concat("-----BEGIN EC ", "PRIVATE KEY-----"),
-                string.Concat("-----BEGIN RSA ", "PRIVATE KEY-----"),
-                string.Concat("-----BEGIN OPENSSH ", "PRIVATE KEY-----")
-            ];
-            if (privatePemMarkers.Any(marker =>
-                    text.Contains(marker, StringComparison.Ordinal)))
+            if (QaPublishedOutputScanner.ContainsSemanticPrivateKeyMaterial(
+                    contents))
             {
                 return true;
             }
@@ -1223,10 +1278,12 @@ public sealed class QaIssuerTests
         using ECDsa ecdsaSec1 = ECDsa.Create();
         using RSA rsaPkcs8 = RSA.Create();
         using RSA rsaPkcs1 = RSA.Create();
+        using DSA dsaPkcs8 = DSA.Create();
         return CanImport(candidate, ecdsaPkcs8.ImportPkcs8PrivateKey)
             || CanImport(candidate, ecdsaSec1.ImportECPrivateKey)
             || CanImport(candidate, rsaPkcs8.ImportPkcs8PrivateKey)
-            || CanImport(candidate, rsaPkcs1.ImportRSAPrivateKey);
+            || CanImport(candidate, rsaPkcs1.ImportRSAPrivateKey)
+            || CanImport(candidate, dsaPkcs8.ImportPkcs8PrivateKey);
     }
 
     private static bool CanImport(

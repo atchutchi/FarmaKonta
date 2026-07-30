@@ -6,6 +6,8 @@ namespace Nofarma.Licensing.Qa;
 public static class QaPublishedOutputScanner
 {
     private const int BufferBytes = 64 * 1024;
+    private const int PrivateHeaderWindowCharacters = 96;
+    private const int PuttyPrivateSectionWindowCharacters = 16 * 1024;
     private const int MaximumPublicKeyFileBytes = 8 * 1024;
     private const long MaximumTextBytes = 8 * 1024 * 1024;
     private static readonly HashSet<string> ForbiddenExtensions = new(
@@ -18,6 +20,7 @@ public static class QaPublishedOutputScanner
         ".p12",
         ".pfx",
         ".pem",
+        ".ppk",
         ".snk"
     };
     private static readonly HashSet<string> TextExtensions = new(
@@ -32,24 +35,45 @@ public static class QaPublishedOutputScanner
     };
     private static readonly string[] ForbiddenAllEncodingPatterns =
     [
-        string.Concat("-----BEGIN ", "PRIVATE KEY-----"),
-        string.Concat("-----BEGIN ENCRYPTED ", "PRIVATE KEY-----"),
-        string.Concat("-----BEGIN RSA ", "PRIVATE KEY-----"),
-        string.Concat("-----BEGIN EC ", "PRIVATE KEY-----"),
-        string.Concat("-----BEGIN OPENSSH ", "PRIVATE KEY-----"),
         "\"client_secret\"",
         "\"private_key\"",
         "qa-signing-key.bin",
         "Nofarma.Licensing.Qa"
     ];
-    private static readonly Encoding[] ForbiddenTextEncodings =
+    private static readonly Encoding[] SupportedTextEncodings =
     [
-        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-        new UnicodeEncoding(bigEndian: false, byteOrderMark: false),
-        new UnicodeEncoding(bigEndian: true, byteOrderMark: false),
-        new UTF32Encoding(bigEndian: false, byteOrderMark: false),
-        new UTF32Encoding(bigEndian: true, byteOrderMark: false)
+        new UTF8Encoding(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true),
+        new UnicodeEncoding(
+            bigEndian: false,
+            byteOrderMark: false,
+            throwOnInvalidBytes: true),
+        new UnicodeEncoding(
+            bigEndian: true,
+            byteOrderMark: false,
+            throwOnInvalidBytes: true),
+        new UTF32Encoding(
+            bigEndian: false,
+            byteOrderMark: false,
+            throwOnInvalidCharacters: true),
+        new UTF32Encoding(
+            bigEndian: true,
+            byteOrderMark: false,
+            throwOnInvalidCharacters: true)
     ];
+    private static readonly BoundedPairSetDefinition PrivateHeaderDefinition =
+        CreatePairDefinitions(
+            ["-----BEGIN", "---- BEGIN"],
+            "PRIVATE KEY",
+            PrivateHeaderWindowCharacters,
+            sameLine: true);
+    private static readonly BoundedPairSetDefinition PuttyDefinition =
+        CreatePairDefinitions(
+            [string.Concat("PuTTY-User-", "Key-File-")],
+            string.Concat("Private-", "Lines:"),
+            PuttyPrivateSectionWindowCharacters,
+            sameLine: false);
     private static readonly byte[][] ForbiddenAllFilePatterns =
     [
         Encoding.ASCII.GetBytes("PRIVATE KEY"),
@@ -92,8 +116,7 @@ public static class QaPublishedOutputScanner
                 oppositeFileName = Path.GetFileName(oppositePublicKeyPath);
             }
 
-            List<FileInfo> files = EnumerateFilesWithoutReparsePoints(root);
-            foreach (FileInfo file in files)
+            foreach (FileInfo file in EnumerateFilesWithoutReparsePoints(root))
             {
                 if (IsForbiddenName(file.Name, oppositeFileName))
                 {
@@ -118,8 +141,14 @@ public static class QaPublishedOutputScanner
                 ? null
                 : Encoding.ASCII.GetString(oppositeBase64);
             byte[] scanBuffer = new byte[BufferBytes];
-            foreach (FileInfo file in files)
+            foreach (FileInfo file in EnumerateFilesWithoutReparsePoints(root))
             {
+                if (IsForbiddenName(file.Name, oppositeFileName))
+                {
+                    return Failure(
+                        "The publish contains a forbidden private or licensing file.");
+                }
+
                 if (ContainsPattern(
                         file.FullName,
                         scanBuffer,
@@ -141,11 +170,10 @@ public static class QaPublishedOutputScanner
                     && file.Length <= remainingTextBytes)
                 {
                     remainingTextBytes -= file.Length;
-                    string normalizedText = RemoveWhitespace(
-                        File.ReadAllText(file.FullName));
-                    if (normalizedText.Contains(
-                            normalizedOppositeBase64,
-                            StringComparison.Ordinal))
+                    if (ContainsNormalizedText(
+                            file.FullName,
+                            file.Length,
+                            normalizedOppositeBase64))
                     {
                         return Failure(
                             "The publish contains opposite channel public-key material.");
@@ -170,10 +198,24 @@ public static class QaPublishedOutputScanner
         }
     }
 
-    private static List<FileInfo> EnumerateFilesWithoutReparsePoints(
+    public static bool ContainsSemanticPrivateKeyMaterial(
+        ReadOnlySpan<byte> contents)
+    {
+        var detector = new SemanticPrivateMaterialDetector();
+        foreach (byte value in contents)
+        {
+            if (detector.Advance(value))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<FileInfo> EnumerateFilesWithoutReparsePoints(
         string root)
     {
-        var files = new List<FileInfo>();
         var pending = new Stack<DirectoryInfo>();
         pending.Push(new DirectoryInfo(root));
         while (pending.Count > 0)
@@ -199,12 +241,10 @@ public static class QaPublishedOutputScanner
                 }
                 else if (entry is FileInfo file)
                 {
-                    files.Add(file);
+                    yield return file;
                 }
             }
         }
-
-        return files;
     }
 
     private static bool IsForbiddenName(
@@ -237,6 +277,7 @@ public static class QaPublishedOutputScanner
         int secretState = 0;
         int textSecretState = 0;
         int oppositeState = 0;
+        var semanticPrivateDetector = new SemanticPrivateMaterialDetector();
         while (true)
         {
             int read = stream.Read(buffer, 0, buffer.Length);
@@ -248,6 +289,7 @@ public static class QaPublishedOutputScanner
             for (int index = 0; index < read; index++)
             {
                 if (secretScanner.Advance(ref secretState, buffer[index])
+                    || semanticPrivateDetector.Advance(buffer[index])
                     || (textSecretScanner is not null
                         && textSecretScanner.Advance(
                             ref textSecretState,
@@ -263,20 +305,108 @@ public static class QaPublishedOutputScanner
         }
     }
 
+    private static bool ContainsNormalizedText(
+        string path,
+        long expectedLength,
+        string expected)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            BufferBytes,
+            FileOptions.SequentialScan);
+        if (stream.Length != expectedLength
+            || stream.Length > MaximumTextBytes
+            || stream.Length > int.MaxValue)
+        {
+            throw new IOException(
+                "The published text changed while it was being scanned.");
+        }
+
+        byte[] contents = new byte[checked((int)stream.Length)];
+        try
+        {
+            stream.ReadExactly(contents);
+            foreach (Encoding encoding in SupportedTextEncodings)
+            {
+                try
+                {
+                    string normalized = RemoveWhitespace(
+                        encoding.GetString(contents));
+                    if (normalized.Contains(expected, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+                catch (DecoderFallbackException)
+                {
+                }
+            }
+
+            return false;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(contents);
+        }
+    }
+
     private static byte[][] EncodeTextPatterns(
         string[] patterns)
     {
         var encoded = new List<byte[]>(
-            patterns.Length * ForbiddenTextEncodings.Length);
+            patterns.Length * SupportedTextEncodings.Length);
         foreach (string pattern in patterns)
         {
-            foreach (Encoding encoding in ForbiddenTextEncodings)
+            foreach (Encoding encoding in SupportedTextEncodings)
             {
                 encoded.Add(encoding.GetBytes(pattern));
             }
         }
 
         return encoded.ToArray();
+    }
+
+    private static BoundedPairSetDefinition CreatePairDefinitions(
+        string[] starts,
+        string target,
+        int maximumCharacters,
+        bool sameLine)
+    {
+        var definitions = new List<BoundedPairDefinition>(
+            SupportedTextEncodings.Length);
+        var encodedStarts = new List<byte[]>(
+            SupportedTextEncodings.Length * starts.Length);
+        var startDefinitionIndexes = new List<int>(encodedStarts.Capacity);
+        foreach (Encoding encoding in SupportedTextEncodings)
+        {
+            int definitionIndex = definitions.Count;
+            int bytesPerAsciiCharacter = encoding.GetByteCount("A");
+            definitions.Add(new BoundedPairDefinition(
+                new BytePatternAutomaton(
+                    [encoding.GetBytes(target)],
+                    ignoreAsciiCase: true),
+                sameLine
+                    ? new BytePatternAutomaton(
+                        [encoding.GetBytes("\r"), encoding.GetBytes("\n")],
+                        ignoreAsciiCase: false)
+                    : null,
+                checked(maximumCharacters * bytesPerAsciiCharacter)));
+            foreach (string start in starts)
+            {
+                encodedStarts.Add(encoding.GetBytes(start));
+                startDefinitionIndexes.Add(definitionIndex);
+            }
+        }
+
+        return new BoundedPairSetDefinition(
+            new BytePatternAutomaton(
+                encodedStarts,
+                ignoreAsciiCase: true),
+            startDefinitionIndexes.ToArray(),
+            definitions.ToArray());
     }
 
     private static bool TryReadOppositePublicKey(
@@ -326,6 +456,125 @@ public static class QaPublishedOutputScanner
     private static LicenseChannelKeyValidation Failure(string message) =>
         new(false, "NFLC010", message);
 
+    private sealed class SemanticPrivateMaterialDetector
+    {
+        private readonly BoundedPairSetScanner _privateHeaderScanner =
+            new(PrivateHeaderDefinition);
+        private readonly BoundedPairSetScanner _puttyScanner =
+            new(PuttyDefinition);
+
+        public bool Advance(byte value) =>
+            _privateHeaderScanner.Advance(value)
+            || _puttyScanner.Advance(value);
+    }
+
+    private sealed class BoundedPairSetScanner
+    {
+        private readonly BoundedPairSetDefinition _definition;
+        private readonly BoundedPairScanner[] _followers;
+        private int _activeFollowers;
+        private int _startState;
+
+        public BoundedPairSetScanner(BoundedPairSetDefinition definition)
+        {
+            _definition = definition;
+            _followers = definition.Definitions
+                .Select(pair => new BoundedPairScanner(pair))
+                .ToArray();
+        }
+
+        public bool Advance(byte value)
+        {
+            if (_activeFollowers > 0)
+            {
+                foreach (BoundedPairScanner follower in _followers)
+                {
+                    if (!follower.IsActive)
+                    {
+                        continue;
+                    }
+
+                    if (follower.Advance(value))
+                    {
+                        return true;
+                    }
+
+                    if (!follower.IsActive)
+                    {
+                        _activeFollowers--;
+                    }
+                }
+            }
+
+            int match = _definition.Start.AdvanceMatch(
+                ref _startState,
+                value);
+            if (match >= 0)
+            {
+                BoundedPairScanner follower =
+                    _followers[_definition.StartDefinitionIndexes[match]];
+                if (!follower.IsActive)
+                {
+                    _activeFollowers++;
+                }
+
+                follower.Activate();
+            }
+
+            return false;
+        }
+    }
+
+    private sealed class BoundedPairScanner(
+        BoundedPairDefinition definition)
+    {
+        private int _targetState;
+        private int _lineBreakState;
+        private int _remainingBytes;
+
+        public bool IsActive => _remainingBytes > 0;
+
+        public void Activate()
+        {
+            _targetState = 0;
+            _lineBreakState = 0;
+            _remainingBytes = definition.MaximumBytes;
+        }
+
+        public bool Advance(byte value)
+        {
+            if (_remainingBytes == 0)
+            {
+                return false;
+            }
+
+            if (definition.LineBreak is not null
+                && definition.LineBreak.Advance(ref _lineBreakState, value))
+            {
+                _remainingBytes = 0;
+                return false;
+            }
+
+            if (definition.Target.Advance(ref _targetState, value))
+            {
+                return true;
+            }
+
+            _remainingBytes--;
+            return false;
+        }
+    }
+
+    private sealed record BoundedPairDefinition(
+        BytePatternAutomaton Target,
+        BytePatternAutomaton? LineBreak,
+        int MaximumBytes);
+
+    private sealed record BoundedPairSetDefinition(
+        BytePatternAutomaton Start,
+        int[] StartDefinitionIndexes,
+        BoundedPairDefinition[] Definitions);
+
     private sealed class BytePatternAutomaton
     {
         private readonly List<State> _states;
@@ -348,15 +597,23 @@ public static class QaPublishedOutputScanner
 
         public bool Advance(ref int state, byte value)
         {
+            return AdvanceMatch(ref state, value) >= 0;
+        }
+
+        public int AdvanceMatch(ref int state, byte value)
+        {
             state = _states[state].Next[Normalize(value)];
-            return _states[state].IsMatch;
+            return _states[state].MatchId;
         }
 
         private List<State> Build(IReadOnlyList<byte[]> patterns)
         {
             var states = new List<State> { new() };
-            foreach (byte[] pattern in patterns)
+            for (int patternIndex = 0;
+                 patternIndex < patterns.Count;
+                 patternIndex++)
             {
+                byte[] pattern = patterns[patternIndex];
                 int state = 0;
                 foreach (byte value in pattern)
                 {
@@ -372,7 +629,10 @@ public static class QaPublishedOutputScanner
                     state = next;
                 }
 
-                states[state].IsMatch = true;
+                if (states[state].MatchId < 0)
+                {
+                    states[state].MatchId = patternIndex;
+                }
             }
 
             var pending = new Queue<int>();
@@ -404,7 +664,10 @@ public static class QaPublishedOutputScanner
 
                     int failure = states[states[current].Failure].Next[value];
                     states[child].Failure = failure;
-                    states[child].IsMatch |= states[failure].IsMatch;
+                    if (states[child].MatchId < 0)
+                    {
+                        states[child].MatchId = states[failure].MatchId;
+                    }
                     pending.Enqueue(child);
                 }
             }
@@ -428,7 +691,7 @@ public static class QaPublishedOutputScanner
 
             public int Failure { get; set; }
 
-            public bool IsMatch { get; set; }
+            public int MatchId { get; set; } = -1;
         }
     }
 }
