@@ -5,7 +5,7 @@ namespace Nofarma.Licensing.Qa;
 
 public static class QaPublishedOutputScanner
 {
-    private const int BufferBytes = 1024 * 1024;
+    private const int BufferBytes = 64 * 1024;
     private const int MaximumPublicKeyFileBytes = 8 * 1024;
     private const long MaximumTextBytes = 8 * 1024 * 1024;
     private static readonly HashSet<string> ForbiddenExtensions = new(
@@ -15,7 +15,10 @@ public static class QaPublishedOutputScanner
         ".nofarma-license",
         ".nofarma-request",
         ".p8",
-        ".pem"
+        ".p12",
+        ".pfx",
+        ".pem",
+        ".snk"
     };
     private static readonly HashSet<string> TextExtensions = new(
         StringComparer.OrdinalIgnoreCase)
@@ -27,14 +30,33 @@ public static class QaPublishedOutputScanner
         ".txt",
         ".xml"
     };
-    private static readonly byte[][] ForbiddenAsciiPatterns =
+    private static readonly string[] ForbiddenAllEncodingPatterns =
+    [
+        string.Concat("-----BEGIN ", "PRIVATE KEY-----"),
+        string.Concat("-----BEGIN ENCRYPTED ", "PRIVATE KEY-----"),
+        string.Concat("-----BEGIN RSA ", "PRIVATE KEY-----"),
+        string.Concat("-----BEGIN EC ", "PRIVATE KEY-----"),
+        string.Concat("-----BEGIN OPENSSH ", "PRIVATE KEY-----"),
+        "\"client_secret\"",
+        "\"private_key\"",
+        "qa-signing-key.bin",
+        "Nofarma.Licensing.Qa"
+    ];
+    private static readonly Encoding[] ForbiddenTextEncodings =
+    [
+        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+        new UnicodeEncoding(bigEndian: false, byteOrderMark: false),
+        new UnicodeEncoding(bigEndian: true, byteOrderMark: false),
+        new UTF32Encoding(bigEndian: false, byteOrderMark: false),
+        new UTF32Encoding(bigEndian: true, byteOrderMark: false)
+    ];
+    private static readonly byte[][] ForbiddenAllFilePatterns =
     [
         Encoding.ASCII.GetBytes("PRIVATE KEY"),
-        Encoding.ASCII.GetBytes("\"client_secret\""),
-        Encoding.ASCII.GetBytes("\"private_key\""),
-        Encoding.ASCII.GetBytes("qa-signing-key.bin"),
-        Encoding.ASCII.GetBytes("Nofarma.Licensing.Qa")
+        .. EncodeTextPatterns(ForbiddenAllEncodingPatterns)
     ];
+    private static readonly byte[][] ForbiddenTextFilePatterns =
+        EncodeTextPatterns(["PRIVATE KEY"]);
 
     public static LicenseChannelKeyValidation Validate(
         string rootPath,
@@ -50,6 +72,7 @@ public static class QaPublishedOutputScanner
 
             byte[] oppositePublicKey = [];
             byte[] oppositeBase64 = [];
+            byte[][] oppositeEncodedBase64 = [];
             string? oppositeFileName = null;
             if (!string.IsNullOrWhiteSpace(oppositePublicKeyPath))
             {
@@ -61,8 +84,11 @@ public static class QaPublishedOutputScanner
                         "The opposite channel public key is unavailable or invalid.");
                 }
 
-                oppositeBase64 = Encoding.ASCII.GetBytes(
-                    Convert.ToBase64String(oppositePublicKey));
+                string oppositeBase64Text =
+                    Convert.ToBase64String(oppositePublicKey);
+                oppositeBase64 = Encoding.ASCII.GetBytes(oppositeBase64Text);
+                oppositeEncodedBase64 = EncodeTextPatterns(
+                    [oppositeBase64Text]);
                 oppositeFileName = Path.GetFileName(oppositePublicKeyPath);
             }
 
@@ -77,23 +103,37 @@ public static class QaPublishedOutputScanner
             }
 
             var secretScanner = new BytePatternAutomaton(
-                ForbiddenAsciiPatterns,
+                ForbiddenAllFilePatterns,
+                ignoreAsciiCase: true);
+            var textSecretScanner = new BytePatternAutomaton(
+                ForbiddenTextFilePatterns,
                 ignoreAsciiCase: true);
             BytePatternAutomaton? oppositeScanner = oppositePublicKey.Length == 0
                 ? null
                 : new BytePatternAutomaton(
-                    [oppositePublicKey, oppositeBase64],
+                    [oppositePublicKey, .. oppositeEncodedBase64],
                     ignoreAsciiCase: false);
             long remainingTextBytes = MaximumTextBytes;
             string? normalizedOppositeBase64 = oppositeBase64.Length == 0
                 ? null
                 : Encoding.ASCII.GetString(oppositeBase64);
+            byte[] scanBuffer = new byte[BufferBytes];
             foreach (FileInfo file in files)
             {
-                if (ContainsPattern(file.FullName, secretScanner, oppositeScanner))
+                if (ContainsPattern(
+                        file.FullName,
+                        scanBuffer,
+                        secretScanner,
+                        TextExtensions.Contains(file.Extension)
+                            ? textSecretScanner
+                            : null,
+                        oppositeScanner))
                 {
                     return Failure(
-                        "The publish contains a forbidden binary secret pattern.");
+                        string.Concat(
+                            "The publish contains a forbidden binary secret pattern in ",
+                            Path.GetRelativePath(root, file.FullName),
+                            "."));
                 }
 
                 if (normalizedOppositeBase64 is not null
@@ -182,7 +222,9 @@ public static class QaPublishedOutputScanner
 
     private static bool ContainsPattern(
         string path,
+        byte[] buffer,
         BytePatternAutomaton secretScanner,
+        BytePatternAutomaton? textSecretScanner,
         BytePatternAutomaton? oppositeScanner)
     {
         using var stream = new FileStream(
@@ -192,8 +234,8 @@ public static class QaPublishedOutputScanner
             FileShare.Read,
             BufferBytes,
             FileOptions.SequentialScan);
-        byte[] buffer = new byte[BufferBytes];
         int secretState = 0;
+        int textSecretState = 0;
         int oppositeState = 0;
         while (true)
         {
@@ -206,6 +248,10 @@ public static class QaPublishedOutputScanner
             for (int index = 0; index < read; index++)
             {
                 if (secretScanner.Advance(ref secretState, buffer[index])
+                    || (textSecretScanner is not null
+                        && textSecretScanner.Advance(
+                            ref textSecretState,
+                            buffer[index]))
                     || (oppositeScanner is not null
                         && oppositeScanner.Advance(
                             ref oppositeState,
@@ -215,6 +261,22 @@ public static class QaPublishedOutputScanner
                 }
             }
         }
+    }
+
+    private static byte[][] EncodeTextPatterns(
+        string[] patterns)
+    {
+        var encoded = new List<byte[]>(
+            patterns.Length * ForbiddenTextEncodings.Length);
+        foreach (string pattern in patterns)
+        {
+            foreach (Encoding encoding in ForbiddenTextEncodings)
+            {
+                encoded.Add(encoding.GetBytes(pattern));
+            }
+        }
+
+        return encoded.ToArray();
     }
 
     private static bool TryReadOppositePublicKey(

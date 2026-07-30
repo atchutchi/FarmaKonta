@@ -1176,8 +1176,10 @@ public sealed class QaIssuerTests
             string[] privatePemMarkers =
             [
                 string.Concat("-----BEGIN ", "PRIVATE KEY-----"),
+                string.Concat("-----BEGIN ENCRYPTED ", "PRIVATE KEY-----"),
                 string.Concat("-----BEGIN EC ", "PRIVATE KEY-----"),
-                string.Concat("-----BEGIN RSA ", "PRIVATE KEY-----")
+                string.Concat("-----BEGIN RSA ", "PRIVATE KEY-----"),
+                string.Concat("-----BEGIN OPENSSH ", "PRIVATE KEY-----")
             ];
             if (privatePemMarkers.Any(marker =>
                     text.Contains(marker, StringComparison.Ordinal)))

@@ -113,7 +113,10 @@ public sealed class PublishedFiles : IDisposable
                 "Nofarma.Licensing.Qa",
                 StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".p8", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".p12", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".pfx", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".pem", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".snk", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".key", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".nofarma-license", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".nofarma-request", StringComparison.OrdinalIgnoreCase);
@@ -226,6 +229,56 @@ public sealed class PublishedFiles : IDisposable
     public static ProcessResult RunVerificationScript(string channel, string output)
     {
         string repoRoot = FindRepoRoot();
+        return RunVerificationScript(repoRoot, channel, output);
+    }
+
+    public static CommercialScriptResult
+        RunCommercialVerificationScriptWithDistinctTemporaryKey()
+    {
+        SafeTemporaryDirectory temporaryRepo = CreateTemporaryRepo(
+            "nofarma-commercial-script-success");
+        try
+        {
+            string qaPath = CopyQaPublicKey(FindRepoRoot(), temporaryRepo.Path);
+            string commercialPath = CommercialKeyPath(temporaryRepo.Path);
+            using ECDsa commercialKey = ECDsa.Create(
+                ECCurve.NamedCurves.nistP256);
+            byte[] commercialPublicKey =
+                commercialKey.ExportSubjectPublicKeyInfo();
+            Directory.CreateDirectory(Path.GetDirectoryName(commercialPath)!);
+            File.WriteAllText(
+                commercialPath,
+                Convert.ToBase64String(commercialPublicKey));
+            string output = Path.Combine(
+                temporaryRepo.Path,
+                "artifacts",
+                "commercial-publish");
+            ProcessResult process = RunVerificationScript(
+                temporaryRepo.Path,
+                "Commercial",
+                output);
+            return new CommercialScriptResult(
+                temporaryRepo,
+                process,
+                qaPath,
+                commercialPublicKey,
+                output);
+        }
+        catch
+        {
+            temporaryRepo.Dispose();
+            throw;
+        }
+    }
+
+    public static string FindPublishedDesktopAssembly(string root) =>
+        FindDesktopAssembly(root);
+
+    private static ProcessResult RunVerificationScript(
+        string repoRoot,
+        string channel,
+        string output)
+    {
         return RunProcess(
             repoRoot,
             "powershell.exe",
@@ -238,6 +291,47 @@ public sealed class PublishedFiles : IDisposable
             channel,
             "-Output",
             output);
+    }
+
+    public static ProcessResult RunVerificationScriptWithLateOutputFile(
+        string channel,
+        string output,
+        string sentinelPath)
+    {
+        string temporaryRoot = Path.GetFullPath(Path.GetTempPath());
+        var existingBuildRoots = Directory
+            .EnumerateDirectories(
+                temporaryRoot,
+                "nofarma-license-verify-*",
+                SearchOption.TopDirectoryOnly)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Task<ProcessResult> verification = Task.Run(
+            () => RunVerificationScript(channel, output));
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddMinutes(1);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            bool buildStarted = Directory
+                .EnumerateDirectories(
+                    temporaryRoot,
+                    "nofarma-license-verify-*",
+                    SearchOption.TopDirectoryOnly)
+                .Any(path => !existingBuildRoots.Contains(path));
+            if (buildStarted)
+            {
+                File.WriteAllText(sentinelPath, "preserve-late-output");
+                return verification.GetAwaiter().GetResult();
+            }
+
+            if (verification.IsCompleted)
+            {
+                return verification.GetAwaiter().GetResult();
+            }
+
+            Thread.Sleep(TimeSpan.FromMilliseconds(50));
+        }
+
+        throw new TimeoutException(
+            "The verification script did not start its private build in time.");
     }
 
     public static SafeTemporaryOutput CreateNonEmptyOutputDirectory() => new();
@@ -322,6 +416,7 @@ public sealed class PublishedFiles : IDisposable
                      Path.Combine("src", "Nofarma.Desktop"),
                      Path.Combine("src", "Nofarma.Domain"),
                      Path.Combine("src", "Nofarma.Infrastructure"),
+                     "scripts",
                      Path.Combine("tools", "Nofarma.Licensing.Qa")
                  })
         {
@@ -567,6 +662,35 @@ public sealed class CommercialBuildResult : IDisposable
     public string AssemblyPath { get; }
 
     public IReadOnlyList<string> ValidatedSnapshots { get; }
+
+    public void Dispose() => _temporaryRepo.Dispose();
+}
+
+public sealed class CommercialScriptResult : IDisposable
+{
+    private readonly SafeTemporaryDirectory _temporaryRepo;
+
+    internal CommercialScriptResult(
+        SafeTemporaryDirectory temporaryRepo,
+        ProcessResult process,
+        string qaPublicKeyPath,
+        byte[] commercialPublicKey,
+        string publishedDirectory)
+    {
+        _temporaryRepo = temporaryRepo;
+        Process = process;
+        QaPublicKeyPath = qaPublicKeyPath;
+        CommercialPublicKey = commercialPublicKey;
+        PublishedDirectory = publishedDirectory;
+    }
+
+    public ProcessResult Process { get; }
+
+    public string QaPublicKeyPath { get; }
+
+    public byte[] CommercialPublicKey { get; }
+
+    public string PublishedDirectory { get; }
 
     public void Dispose() => _temporaryRepo.Dispose();
 }

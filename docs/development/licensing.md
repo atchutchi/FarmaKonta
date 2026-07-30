@@ -97,7 +97,20 @@ ausência completa do recurso.
 O publish é ainda pesquisado por nomes do emissor, extensões de chaves
 privadas, pedidos, licenças emitidas e padrões textuais de segredos. O output
 final não pode conter `Nofarma.Licensing.Qa`, `qa-signing-key.bin`, `.p8`,
-`.pem`, `.key`, `.nofarma-request` ou `.nofarma-license`.
+`.p12`, `.pfx`, `.pem`, `.snk`, `.key`, `.nofarma-request` ou
+`.nofarma-license`.
+
+O scanner lê todos os ficheiros em streaming com um buffer único de 64 KiB.
+Reconhece cabeçalhos PEM, campos de credenciais e nomes internos em UTF-8,
+UTF-16LE, UTF-16BE, UTF-32LE e UTF-32BE, com ou sem BOM. A frase genérica
+`PRIVATE KEY` é pesquisada em ASCII em todos os ficheiros e nas codificações
+multibyte dentro de ficheiros textuais. A SPKI do canal oposto é rejeitada em
+DER raw e em base64 nas mesmas codificações.
+
+Imediatamente antes do publish, o script volta a verificar todos os componentes
+existentes do caminho contra reparse points e confirma que o output continua
+vazio. Uma alteração ocorrida durante o build fecha o gate e preserva o
+conteúdo introduzido.
 
 ## Canal Commercial
 

@@ -67,6 +67,34 @@ function Assert-NoReparsePoint {
     }
 }
 
+function Assert-EmptyOutputDirectory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [switch]$CreateIfMissing
+    )
+
+    Assert-NoReparsePoint -Path $Path
+    if (-not (Test-Path -LiteralPath $Path)) {
+        if (-not $CreateIfMissing) {
+            throw "The output directory is no longer available."
+        }
+
+        [IO.Directory]::CreateDirectory($Path) | Out-Null
+        Assert-NoReparsePoint -Path $Path
+    }
+
+    $outputItem = Get-Item -LiteralPath $Path -Force
+    if (-not $outputItem.PSIsContainer) {
+        throw "The output path must be a directory."
+    }
+
+    if (@(Get-ChildItem -LiteralPath $Path -Force).Count -ne 0) {
+        throw "The output directory must be empty. Existing contents were preserved."
+    }
+}
+
 function Invoke-Dotnet {
     param(
         [Parameter(Mandatory = $true)]
@@ -198,20 +226,7 @@ if (Test-SamePath -First $fullOutput -Second $repoRoot) {
     throw "The repository root cannot be used as the publish output."
 }
 
-Assert-NoReparsePoint -Path $fullOutput
-if (Test-Path -LiteralPath $fullOutput) {
-    $outputItem = Get-Item -LiteralPath $fullOutput -Force
-    if (-not $outputItem.PSIsContainer) {
-        throw "The output path must be a directory."
-    }
-
-    if (@(Get-ChildItem -LiteralPath $fullOutput -Force).Count -ne 0) {
-        throw "The output directory must be empty. Existing contents were preserved."
-    }
-}
-else {
-    [IO.Directory]::CreateDirectory($fullOutput) | Out-Null
-}
+Assert-EmptyOutputDirectory -Path $fullOutput -CreateIfMissing
 
 $desktopProject = Join-Path $repoRoot "src\Nofarma.Desktop\Nofarma.Desktop.csproj"
 $script:IssuerProject = Join-Path $repoRoot "tools\Nofarma.Licensing.Qa\Nofarma.Licensing.Qa.csproj"
@@ -278,6 +293,7 @@ try {
             -OppositePublicKeyPath $oppositePublicKey
     }
 
+    Assert-EmptyOutputDirectory -Path $fullOutput
     Invoke-Dotnet -CommandArguments @(
         "publish",
         $desktopProject,

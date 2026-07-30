@@ -105,6 +105,15 @@ public sealed class PublishedChannelTests(PublishedFiles publishedFiles)
 [Collection(PublishedChannelTestGroup.Name)]
 public sealed class LicenseChannelScriptTests
 {
+    public static TheoryData<string> PemHeaders { get; } = new()
+    {
+        string.Concat("-----BEGIN ", "PRIVATE KEY-----"),
+        string.Concat("-----BEGIN ENCRYPTED ", "PRIVATE KEY-----"),
+        string.Concat("-----BEGIN RSA ", "PRIVATE KEY-----"),
+        string.Concat("-----BEGIN EC ", "PRIVATE KEY-----"),
+        string.Concat("-----BEGIN OPENSSH ", "PRIVATE KEY-----")
+    };
+
     [Fact]
     public void VerificationScriptRejectsRelativeOutput()
     {
@@ -132,14 +141,150 @@ public sealed class LicenseChannelScriptTests
     }
 
     [Fact]
+    public void VerificationScriptRejectsOutputChangedBeforePublish()
+    {
+        using var output = new SafeTemporaryDirectory(
+            "nofarma-late-publish-output");
+        string sentinelPath = Path.Combine(output.Path, "late-sentinel.txt");
+
+        ProcessResult result = PublishedFiles
+            .RunVerificationScriptWithLateOutputFile(
+                "QA",
+                output.Path,
+                sentinelPath);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("empty", result.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            "preserve-late-output",
+            File.ReadAllText(sentinelPath));
+    }
+
+    [Fact]
+    public void VerificationScriptPublishesUnlicensedWithoutKeyResource()
+    {
+        using var output = new SafeTemporaryDirectory(
+            "nofarma-unlicensed-script-success");
+
+        ProcessResult result = PublishedFiles.RunVerificationScript(
+            "Unlicensed",
+            output.Path);
+        LicenseChannelKeyValidation validation =
+            QaPublishedKeyValidator.ValidateAbsent(
+                PublishedFiles.FindPublishedDesktopAssembly(output.Path));
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.True(validation.IsValid, validation.Message);
+    }
+
+    [Fact]
+    public void VerificationScriptPublishesCommercialWithEphemeralKey()
+    {
+        using CommercialScriptResult result = PublishedFiles
+            .RunCommercialVerificationScriptWithDistinctTemporaryKey();
+
+        byte[] embedded = PublishedFiles.ReadEmbeddedPublicKey(
+            PublishedFiles.FindPublishedDesktopAssembly(
+                result.PublishedDirectory));
+
+        Assert.True(result.Process.ExitCode == 0, result.Process.Output);
+        Assert.True(PublishedFiles.AreSamePublicKey(
+            result.CommercialPublicKey,
+            embedded));
+        Assert.False(PublishedFiles.AreSamePublicKey(
+            PublishedFiles.ReadPublicKey(result.QaPublicKeyPath),
+            embedded));
+    }
+
+    [Fact]
     public void PublishedOutputScannerRejectsSecretAcrossBufferBoundary()
     {
         using var output = new SafeTemporaryDirectory(
             "nofarma-binary-boundary");
-        byte[] contents = new byte[(1024 * 1024) + 32];
+        byte[] contents = new byte[(64 * 1024) + 32];
         byte[] marker = Encoding.ASCII.GetBytes("PRIVATE KEY");
-        marker.CopyTo(contents, (1024 * 1024) - 4);
+        marker.CopyTo(contents, (64 * 1024) - 4);
         File.WriteAllBytes(Path.Combine(output.Path, "probe.bin"), contents);
+
+        LicenseChannelKeyValidation result =
+            QaPublishedOutputScanner.Validate(output.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Equal("NFLC010", result.Code);
+    }
+
+    [Theory]
+    [InlineData("utf8", false)]
+    [InlineData("utf8", true)]
+    [InlineData("utf16le", false)]
+    [InlineData("utf16le", true)]
+    [InlineData("utf16be", false)]
+    [InlineData("utf16be", true)]
+    [InlineData("utf32le", false)]
+    [InlineData("utf32le", true)]
+    [InlineData("utf32be", false)]
+    [InlineData("utf32be", true)]
+    public void PublishedOutputScannerRejectsEncodedSecretAcrossBufferBoundary(
+        string encodingName,
+        bool includeBom)
+    {
+        using var output = new SafeTemporaryDirectory(
+            "nofarma-encoded-secret");
+        Encoding encoding = MarkerEncoding(encodingName, includeBom);
+        byte[] marker = encoding.GetBytes(
+            string.Concat("-----BEGIN ", "PRIVATE KEY-----"));
+        byte[] preamble = includeBom ? encoding.GetPreamble() : [];
+        int markerStart = (64 * 1024) - Math.Max(1, marker.Length / 2);
+        byte[] contents = Enumerable
+            .Repeat((byte)0x7F, markerStart + marker.Length + 32)
+            .ToArray();
+        preamble.CopyTo(contents, 0);
+        marker.CopyTo(contents, markerStart);
+        File.WriteAllBytes(Path.Combine(output.Path, "encoded.bin"), contents);
+
+        LicenseChannelKeyValidation result =
+            QaPublishedOutputScanner.Validate(output.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Equal("NFLC010", result.Code);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PublishedOutputScannerRejectsUtf16PrivateKeyText(bool includeBom)
+    {
+        using var output = new SafeTemporaryDirectory(
+            "nofarma-utf16-private-key-text");
+        var encoding = new UnicodeEncoding(
+            bigEndian: false,
+            byteOrderMark: includeBom);
+        byte[] preamble = includeBom ? encoding.GetPreamble() : [];
+        byte[] contents =
+        [
+            .. preamble,
+            .. encoding.GetBytes("PRIVATE KEY")
+        ];
+        File.WriteAllBytes(Path.Combine(output.Path, "secret.txt"), contents);
+
+        LicenseChannelKeyValidation result =
+            QaPublishedOutputScanner.Validate(output.Path);
+
+        Assert.False(result.IsValid);
+        Assert.Equal("NFLC010", result.Code);
+    }
+
+    [Theory]
+    [MemberData(nameof(PemHeaders))]
+    public void PublishedOutputScannerRejectsUtf16PemHeaders(string header)
+    {
+        using var output = new SafeTemporaryDirectory(
+            "nofarma-utf16-pem-header");
+        byte[] contents = new UnicodeEncoding(
+            bigEndian: false,
+            byteOrderMark: false)
+            .GetBytes(header);
+        File.WriteAllBytes(Path.Combine(output.Path, "renamed.bin"), contents);
 
         LicenseChannelKeyValidation result =
             QaPublishedOutputScanner.Validate(output.Path);
@@ -181,6 +326,9 @@ public sealed class LicenseChannelScriptTests
 
     [Theory]
     [InlineData("private.p8")]
+    [InlineData("private.p12")]
+    [InlineData("private.pfx")]
+    [InlineData("private.snk")]
     [InlineData("qa-signing-key.bin")]
     [InlineData("Nofarma.Licensing.Qa.dll")]
     [InlineData("issued.nofarma-license")]
@@ -218,4 +366,55 @@ public sealed class LicenseChannelScriptTests
         Assert.False(result.IsValid);
         Assert.Equal("NFLC010", result.Code);
     }
+
+    [Fact]
+    public void PublishedOutputScannerRejectsUtf16OppositeKeyAcrossBufferBoundary()
+    {
+        using var directory = new SafeTemporaryDirectory(
+            "nofarma-opposite-key-utf16");
+        string publish = Path.Combine(directory.Path, "publish");
+        Directory.CreateDirectory(publish);
+        using ECDsa oppositeKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        byte[] oppositePublicKey = oppositeKey.ExportSubjectPublicKeyInfo();
+        string oppositeBase64 = Convert.ToBase64String(oppositePublicKey);
+        string oppositePath = Path.Combine(directory.Path, "opposite.spki.b64");
+        File.WriteAllText(oppositePath, oppositeBase64);
+        var encoding = new UnicodeEncoding(
+            bigEndian: false,
+            byteOrderMark: true);
+        byte[] encodedBase64 = encoding.GetBytes(oppositeBase64);
+        int markerStart = (64 * 1024) - (encodedBase64.Length / 2);
+        byte[] contents = Enumerable
+            .Repeat((byte)0x7F, markerStart + encodedBase64.Length + 32)
+            .ToArray();
+        encoding.GetPreamble().CopyTo(contents, 0);
+        encodedBase64.CopyTo(contents, markerStart);
+        File.WriteAllBytes(Path.Combine(publish, "renamed.bin"), contents);
+
+        LicenseChannelKeyValidation result =
+            QaPublishedOutputScanner.Validate(publish, oppositePath);
+
+        Assert.False(result.IsValid);
+        Assert.Equal("NFLC010", result.Code);
+    }
+
+    private static Encoding MarkerEncoding(
+        string name,
+        bool includeBom) => name switch
+        {
+            "utf8" => new UTF8Encoding(includeBom),
+            "utf16le" => new UnicodeEncoding(
+                bigEndian: false,
+                byteOrderMark: includeBom),
+            "utf16be" => new UnicodeEncoding(
+                bigEndian: true,
+                byteOrderMark: includeBom),
+            "utf32le" => new UTF32Encoding(
+                bigEndian: false,
+                byteOrderMark: includeBom),
+            "utf32be" => new UTF32Encoding(
+                bigEndian: true,
+                byteOrderMark: includeBom),
+            _ => throw new ArgumentOutOfRangeException(nameof(name))
+        };
 }
