@@ -1,0 +1,133 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Nofarma.Desktop</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
+    <PublishProfile Condition="Exists('Properties\PublishProfiles\win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NofarmaLicenseChannel Condition="'$(NofarmaLicenseChannel)' == ''">Unlicensed</NofarmaLicenseChannel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(NofarmaLicenseChannel)' == 'QA'">
+    <DefineConstants>$(DefineConstants);NOFARMA_LICENSE_QA</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(NofarmaLicenseChannel)' == 'Commercial'">
+    <DefineConstants>$(DefineConstants);NOFARMA_LICENSE_COMMERCIAL</DefineConstants>
+  </PropertyGroup>
+
+  <Target Name="ValidateNofarmaLicenseChannel" BeforeTargets="PrepareForBuild">
+    <Error
+      Code="NFLC000"
+      Condition="'$(NofarmaLicenseChannel)' != 'Unlicensed' and '$(NofarmaLicenseChannel)' != 'QA' and '$(NofarmaLicenseChannel)' != 'Commercial'"
+      Text="unknown Nofarma licence channel" />
+  </Target>
+
+  <Target
+    Name="ValidateCommercialLicenseKey"
+    BeforeTargets="PrepareForBuild"
+    Condition="'$(NofarmaLicenseChannel)' == 'Commercial'">
+    <ItemGroup>
+      <_NofarmaCommercialKeySnapshot Include="$(MSBuildProjectDirectory)\obj\nofarma-license-gate\nofarma-commercial-public.$([System.Guid]::NewGuid().ToString('N')).validated.spki.b64" />
+    </ItemGroup>
+    <Error
+      Code="NFLC001"
+      Condition="!Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64')"
+      Text="commercial public key is not provisioned" />
+    <Error
+      Code="NFLC003"
+      Condition="!Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64')"
+      Text="QA public key is not provisioned for channel separation validation" />
+    <Exec
+      Condition="Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64') and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64')"
+      Command="dotnet run --project &quot;$(MSBuildProjectDirectory)\..\..\tools\Nofarma.Licensing.Qa\Nofarma.Licensing.Qa.csproj&quot; --configuration Release --no-launch-profile -- validate-commercial-key --qa-public &quot;$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64&quot; --commercial-public &quot;$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64&quot; --validated-output &quot;@(_NofarmaCommercialKeySnapshot)&quot;" />
+    <Error
+      Code="NFLC005"
+      Condition="Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-commercial-public.spki.b64') and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64') and !Exists('@(_NofarmaCommercialKeySnapshot)')"
+      Text="validated Commercial public key snapshot was not produced" />
+    <ItemGroup Condition="Exists('@(_NofarmaCommercialKeySnapshot)')">
+      <EmbeddedResource Include="@(_NofarmaCommercialKeySnapshot)">
+        <LogicalName>Nofarma.Desktop.LicensingPublicKey</LogicalName>
+      </EmbeddedResource>
+    </ItemGroup>
+  </Target>
+
+  <Target
+    Name="RemoveCommercialLicenseKeySnapshot"
+    AfterTargets="CoreCompile"
+    Condition="'$(NofarmaLicenseChannel)' == 'Commercial' and '@(_NofarmaCommercialKeySnapshot)' != ''">
+    <Delete Files="@(_NofarmaCommercialKeySnapshot)" />
+  </Target>
+
+  <ItemGroup>
+    <Content Include="Assets\SplashScreen.scale-200.png" />
+    <Content Include="Assets\LockScreenLogo.scale-200.png" />
+    <Content Include="Assets\Square150x150Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-48_altform-lightunplated.png" />
+    <Content Include="Assets\StoreLogo.png" />
+    <Content Include="Assets\AppIcon.ico" />
+    <Content Include="Assets\Wide310x150Logo.scale-200.png" />
+    <Content Include="Assets\NofarmaLogo.png" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(NofarmaLicenseChannel)' == 'QA' and Exists('$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64')">
+    <EmbeddedResource Include="$(MSBuildProjectDirectory)\..\..\build\keys\nofarma-qa-public.spki.b64">
+      <LogicalName>Nofarma.Desktop.LicensingPublicKey</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <!--
+    Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
+    Tools extension to be activated for this project even if the Windows App SDK Nuget
+    package has not yet been restored.
+  -->
+  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+    <ProjectCapability Include="Msix" />
+  </ItemGroup>
+
+  <!--
+    Microsoft.Windows.SDK.BuildTools.WinApp adds first-class support for
+    `dotnet run` on packaged WinUI apps: it hooks the .NET CLI Run target to
+    register a debug identity via the winapp CLI and launch the app with
+    package identity (AUMID).
+    Set <EnableWinAppRunSupport>false</EnableWinAppRunSupport> in a
+    <PropertyGroup> above to opt out.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Nofarma.Application\Nofarma.Application.csproj" />
+    <ProjectReference Include="..\Nofarma.Infrastructure\Nofarma.Infrastructure.csproj" />
+    <ProjectReference Include="..\Nofarma.Contracts\Nofarma.Contracts.csproj" />
+  </ItemGroup>
+
+  <!--
+    Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
+    Explorer "Package and Publish" context menu entry to be enabled for this project even if
+    the Windows App SDK Nuget package has not yet been restored.
+  -->
+  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+    <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+  </PropertyGroup>
+
+</Project>

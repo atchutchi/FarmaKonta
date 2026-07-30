@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Nofarma.Api\Nofarma.Api.csproj" />
+    <ProjectReference Include="..\..\src\Nofarma.Application\Nofarma.Application.csproj" />
+    <ProjectReference Include="..\..\src\Nofarma.Contracts\Nofarma.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Nofarma.Domain\Nofarma.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Nofarma.Infrastructure\Nofarma.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\tools\Nofarma.Licensing.Qa\Nofarma.Licensing.Qa.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

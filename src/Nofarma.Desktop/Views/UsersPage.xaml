@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Nofarma.Desktop.Views.UsersPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:users="using:Nofarma.Application.Identity.Users"
+    Background="{StaticResource NofarmaCanvasBrush}"
+    Loaded="OnLoaded">
+    <Grid Padding="24" ColumnSpacing="20">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.ColumnSpan="2" Margin="0,0,0,16" Spacing="4">
+            <TextBlock Style="{StaticResource NofarmaHeadingStyle}" Text="Utilizadores" />
+            <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Perfis locais, estado da conta e tipo de credencial." />
+        </StackPanel>
+
+        <Border
+            Grid.Row="1"
+            Padding="14"
+            Background="White"
+            BorderBrush="{StaticResource NofarmaBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <ListView x:Name="UsersList">
+                <ListView.Header>
+                    <Grid Margin="10,6" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock FontWeight="SemiBold" Text="Utilizador" />
+                        <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="Função" />
+                        <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="Credencial" />
+                        <TextBlock Grid.Column="3" FontWeight="SemiBold" Text="Estado" />
+                    </Grid>
+                </ListView.Header>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="users:ManagedUserSummary">
+                        <Grid MinHeight="48" Padding="10,6" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Text="{x:Bind DisplayName}" />
+                                <TextBlock FontSize="12" Foreground="{StaticResource NofarmaMutedBrush}" Text="{x:Bind Login}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Role}" />
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind CredentialKind}" />
+                            <TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Status}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Border>
+
+        <Border
+            Grid.Row="1"
+            Grid.Column="1"
+            Padding="18"
+            Background="White"
+            BorderBrush="{StaticResource NofarmaBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <ScrollViewer>
+                <StackPanel Spacing="9">
+                    <TextBlock FontSize="19" FontWeight="SemiBold" Text="Novo utilizador" />
+                    <InfoBar x:Name="UserMessageBar" IsClosable="True" IsOpen="False" />
+                    <TextBlock Text="Nome completo" />
+                    <TextBox x:Name="NewDisplayNameBox" Style="{StaticResource NofarmaFieldStyle}" />
+                    <TextBlock Text="Nome de utilizador" />
+                    <TextBox x:Name="NewLoginBox" Style="{StaticResource NofarmaFieldStyle}" />
+                    <TextBlock Text="Função" />
+                    <ComboBox x:Name="NewRoleBox" MinHeight="40" SelectionChanged="OnRoleChanged" />
+                    <TextBlock x:Name="CredentialLabel" Text="Palavra-passe" />
+                    <PasswordBox x:Name="NewCredentialBox" MinHeight="40" PasswordRevealMode="Peek" />
+                    <TextBlock
+                        x:Name="CredentialHelpText"
+                        Foreground="{StaticResource NofarmaMutedBrush}"
+                        Text="Use uma palavra-passe forte com pelo menos 12 caracteres."
+                        TextWrapping="Wrap" />
+                    <Button
+                        Margin="0,8,0,0"
+                        Click="OnCreateUser"
+                        Content="Criar utilizador"
+                        Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</Page>

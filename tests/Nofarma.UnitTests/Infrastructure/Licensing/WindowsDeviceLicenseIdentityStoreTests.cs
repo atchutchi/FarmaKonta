@@ -1,0 +1,244 @@
+using System.Security.Cryptography;
+using System.Runtime.Versioning;
+using System.Text;
+using Nofarma.Domain.Common;
+using Nofarma.Infrastructure.Licensing;
+using Nofarma.UnitTests.TestSupport.Licensing;
+
+namespace Nofarma.UnitTests.Infrastructure.Licensing;
+
+[SupportedOSPlatform("windows")]
+public sealed class WindowsDeviceLicenseIdentityStoreTests : IDisposable
+{
+    private readonly string _directory = Path.Combine(
+        Path.GetTempPath(),
+        $"nofarma-device-licence-{Guid.NewGuid():N}");
+
+    [Fact]
+    public void CreatedIdentityIsStableAndPersistsOnlyProtectedMaterial()
+    {
+        var protector = new FakeProtector("machine-a");
+        var firstStore = new WindowsDeviceLicenseIdentityStore(_directory, protector);
+        var secondStore = new WindowsDeviceLicenseIdentityStore(_directory, protector);
+
+        var first = firstStore.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+        var second = secondStore.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+
+        Assert.Equal(first, second);
+        Assert.StartsWith("SHA256:", first.PublicKeyThumbprint);
+        Assert.NotEmpty(first.PublicKeyThumbprint);
+        Assert.True(File.Exists(Path.Combine(_directory, "device-license-key.bin")));
+        Assert.Empty(Directory.EnumerateFiles(_directory, "*.tmp"));
+    }
+
+    [Fact]
+    public void CopiedProtectedBlobCannotResolveOnAnotherProtector()
+    {
+        var first = new WindowsDeviceLicenseIdentityStore(
+            _directory,
+            new FakeProtector("machine-a"));
+        var identity = first.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+        var copied = new WindowsDeviceLicenseIdentityStore(
+            _directory,
+            new FakeProtector("machine-b"));
+
+        Assert.Throws<CryptographicException>(() =>
+            copied.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId));
+        Assert.NotEmpty(identity.PublicKeyThumbprint);
+    }
+
+    [Fact]
+    public void CorruptedExistingIdentityIsNotSilentlyRegenerated()
+    {
+        var protector = new FakeProtector("machine-a");
+        var store = new WindowsDeviceLicenseIdentityStore(_directory, protector);
+        var original = store.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+        string path = Path.Combine(_directory, "device-license-key.bin");
+        File.WriteAllBytes(path, [0x01, 0x02, 0x03]);
+
+        Assert.Throws<CryptographicException>(() =>
+            store.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId));
+        Assert.Equal([0x01, 0x02, 0x03], File.ReadAllBytes(path));
+        Assert.NotEmpty(original.PublicKeyThumbprint);
+    }
+
+    [Fact]
+    public void ExistingIdentityCannotBeReboundToAnotherDevice()
+    {
+        var protector = new FakeProtector("machine-a");
+        var store = new WindowsDeviceLicenseIdentityStore(_directory, protector);
+        store.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+        var otherDeviceId = new EntityId(Guid.Parse("55555555-5555-5555-5555-555555555555"));
+
+        Assert.Throws<CryptographicException>(() =>
+            store.GetOrCreate(LicenseTestData.PharmacyId, otherDeviceId));
+    }
+
+    [Fact]
+    public void OversizedIdentityIsRejectedBeforeUnprotecting()
+    {
+        Directory.CreateDirectory(_directory);
+        File.WriteAllBytes(
+            Path.Combine(_directory, "device-license-key.bin"),
+            new byte[64 * 1024]);
+        var protector = new CountingProtector(new FakeProtector("machine-a"));
+        var store = new WindowsDeviceLicenseIdentityStore(_directory, protector);
+
+        Assert.Throws<CryptographicException>(() =>
+            store.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId));
+        Assert.Equal(0, protector.UnprotectCalls);
+    }
+
+    [Fact]
+    public void AccessRemovesOnlyValidatedOrphansForTheIdentityTarget()
+    {
+        Directory.CreateDirectory(_directory);
+        string owned = Path.Combine(
+            _directory,
+            ".device-license-key.bin.abcd.tmp");
+        string unrelated = Path.Combine(_directory, ".other-secret.bin.abcd.tmp");
+        File.WriteAllBytes(owned, [1]);
+        File.WriteAllBytes(unrelated, [2]);
+        var store = new WindowsDeviceLicenseIdentityStore(
+            _directory,
+            new FakeProtector("machine-a"));
+
+        store.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+
+        Assert.False(File.Exists(owned));
+        Assert.True(File.Exists(unrelated));
+    }
+
+    [Fact]
+    public void DefaultDpapiProtectorRoundTripsOnWindows()
+    {
+        var first = new WindowsDeviceLicenseIdentityStore(_directory);
+        var created = first.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+
+        var loaded = new WindowsDeviceLicenseIdentityStore(_directory)
+            .GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId);
+
+        Assert.Equal(created, loaded);
+    }
+
+    [Fact]
+    public async Task ConcurrentInstancesSerializeBeforeProtectingIdentity()
+    {
+        var shared = new FakeProtector("machine-a");
+        using var firstProtectEntered = new ManualResetEventSlim();
+        using var releaseFirstProtect = new ManualResetEventSlim();
+        using var secondProtectEntered = new ManualResetEventSlim();
+        var first = new WindowsDeviceLicenseIdentityStore(
+            _directory,
+            new BlockingProtectProtector(
+                shared,
+                firstProtectEntered,
+                releaseFirstProtect));
+        var second = new WindowsDeviceLicenseIdentityStore(
+            _directory,
+            new SignalingProtectProtector(shared, secondProtectEntered));
+
+        Task<Nofarma.Application.Licensing.DeviceLicenseIdentity> firstTask = Task.Run(() =>
+            first.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId));
+        bool firstEntered = firstProtectEntered.Wait(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        Task<Nofarma.Application.Licensing.DeviceLicenseIdentity> secondTask = Task.Run(() =>
+            second.GetOrCreate(LicenseTestData.PharmacyId, LicenseTestData.DeviceId));
+        bool secondEnteredBeforeRelease = secondProtectEntered.Wait(
+            TimeSpan.FromMilliseconds(500),
+            TestContext.Current.CancellationToken);
+        releaseFirstProtect.Set();
+        Nofarma.Application.Licensing.DeviceLicenseIdentity[] identities =
+            await Task.WhenAll(firstTask, secondTask);
+
+        Assert.True(firstEntered);
+        Assert.False(secondEnteredBeforeRelease);
+        Assert.Equal(identities[0], identities[1]);
+    }
+
+    public void Dispose()
+    {
+        DeleteOwnedTemporaryDirectory(_directory, "nofarma-device-licence-");
+    }
+
+    internal static void DeleteOwnedTemporaryDirectory(string directory, string expectedPrefix)
+    {
+        string fullDirectory = Path.GetFullPath(directory);
+        string fullTemp = Path.GetFullPath(Path.GetTempPath());
+        string name = Path.GetFileName(fullDirectory);
+
+        if (Directory.Exists(fullDirectory)
+            && fullDirectory.StartsWith(fullTemp, StringComparison.OrdinalIgnoreCase)
+            && name.StartsWith(expectedPrefix, StringComparison.Ordinal))
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    Directory.Delete(fullDirectory, recursive: true);
+                    return;
+                }
+                catch (IOException) when (attempt < 19)
+                {
+                    Thread.Sleep(TimeSpan.FromMilliseconds(50));
+                }
+            }
+        }
+    }
+}
+
+internal sealed class FakeProtector(string machineId) : ILocalDataProtector
+{
+    private readonly byte[] _machinePrefix = Encoding.UTF8.GetBytes(machineId + ":");
+
+    public byte[] Protect(ReadOnlySpan<byte> clear, ReadOnlySpan<byte> entropy)
+    {
+        byte[] result = new byte[_machinePrefix.Length + entropy.Length + clear.Length];
+        _machinePrefix.CopyTo(result, 0);
+        entropy.CopyTo(result.AsSpan(_machinePrefix.Length));
+        clear.CopyTo(result.AsSpan(_machinePrefix.Length + entropy.Length));
+        return result;
+    }
+
+    public byte[] Unprotect(ReadOnlySpan<byte> encrypted, ReadOnlySpan<byte> entropy)
+    {
+        int clearOffset = _machinePrefix.Length + entropy.Length;
+        if (encrypted.Length < clearOffset
+            || !encrypted[.._machinePrefix.Length].SequenceEqual(_machinePrefix)
+            || !encrypted.Slice(_machinePrefix.Length, entropy.Length).SequenceEqual(entropy))
+        {
+            throw new CryptographicException("Protected data belongs to another protector.");
+        }
+
+        return encrypted[clearOffset..].ToArray();
+    }
+}
+
+internal sealed class CountingProtector(ILocalDataProtector inner) : ILocalDataProtector
+{
+    internal int UnprotectCalls { get; private set; }
+
+    public byte[] Protect(ReadOnlySpan<byte> clear, ReadOnlySpan<byte> entropy) =>
+        inner.Protect(clear, entropy);
+
+    public byte[] Unprotect(ReadOnlySpan<byte> encrypted, ReadOnlySpan<byte> entropy)
+    {
+        UnprotectCalls++;
+        return inner.Unprotect(encrypted, entropy);
+    }
+}
+
+internal sealed class SignalingProtectProtector(
+    ILocalDataProtector inner,
+    ManualResetEventSlim entered) : ILocalDataProtector
+{
+    public byte[] Protect(ReadOnlySpan<byte> clear, ReadOnlySpan<byte> entropy)
+    {
+        entered.Set();
+        return inner.Protect(clear, entropy);
+    }
+
+    public byte[] Unprotect(ReadOnlySpan<byte> encrypted, ReadOnlySpan<byte> entropy) =>
+        inner.Unprotect(encrypted, entropy);
+}

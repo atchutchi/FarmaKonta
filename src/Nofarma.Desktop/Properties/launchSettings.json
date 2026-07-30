@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Nofarma.Desktop (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Nofarma.Desktop (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

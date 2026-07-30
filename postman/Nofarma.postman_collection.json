@@ -1,0 +1,32 @@
+{
+  "info": {
+    "name": "NôFarma API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Diagnostics",
+      "item": [
+        {
+          "name": "Live health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health/live"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('service is Nofarma.Api', () => pm.expect(pm.response.json().service).to.eql('Nofarma.Api'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

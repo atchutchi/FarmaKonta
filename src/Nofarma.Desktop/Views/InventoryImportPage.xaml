@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Nofarma.Desktop.Views.InventoryImportPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:import="using:Nofarma.Application.Inventory.Import"
+    Background="{StaticResource NofarmaCanvasBrush}">
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="3">
+            <TextBlock Style="{StaticResource NofarmaHeadingStyle}" Text="Importar inventário inicial" />
+            <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Prepara e valida o inventário offline. A confirmação exige licença activa." />
+        </StackPanel>
+
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition />
+                <ColumnDefinition />
+                <ColumnDefinition />
+                <ColumnDefinition />
+            </Grid.ColumnDefinitions>
+            <Border x:Name="FileStep" Padding="12" Background="{StaticResource NofarmaBlueBrush}" CornerRadius="8"><TextBlock Foreground="White" Text="1  Ficheiro" /></Border>
+            <Border x:Name="MappingStep" Grid.Column="1" Padding="12" Background="#E7EDF4" CornerRadius="8"><TextBlock Text="2  Colunas" /></Border>
+            <Border x:Name="ValidationStep" Grid.Column="2" Padding="12" Background="#E7EDF4" CornerRadius="8"><TextBlock Text="3  Validação" /></Border>
+            <Border x:Name="ConfirmationStep" Grid.Column="3" Padding="12" Background="#E7EDF4" CornerRadius="8"><TextBlock Text="4  Confirmação" /></Border>
+        </Grid>
+
+        <Border Grid.Row="2" Padding="22" Background="White" BorderBrush="{StaticResource NofarmaBorderBrush}" BorderThickness="1" CornerRadius="8">
+            <Grid>
+                <StackPanel x:Name="FilePanel" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14">
+                    <FontIcon HorizontalAlignment="Center" FontSize="42" Foreground="{StaticResource NofarmaBlueBrush}" Glyph="&#xE8B7;" />
+                    <TextBlock HorizontalAlignment="Center" FontSize="22" FontWeight="SemiBold" Text="Seleccionar ficheiro" />
+                    <TextBlock TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource NofarmaMutedBrush}" Text="Aceita Excel (.xlsx) ou CSV até 20 MiB. O ficheiro permanece neste computador." />
+                    <TextBlock HorizontalAlignment="Center" Foreground="{StaticResource NofarmaMutedBrush}" Text="Ainda não seleccionaste um ficheiro." />
+                    <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBox x:Name="FilePathBox" MinHeight="44" PlaceholderText="Caminho do ficheiro" /><Button Grid.Column="1" MinHeight="44" Click="OnBrowse" Content="Procurar" Style="{StaticResource NofarmaPrimaryButtonStyle}" /></Grid>
+                    <Button HorizontalAlignment="Right" MinHeight="44" Click="OnPrepareFile" Content="Continuar" Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                </StackPanel>
+
+                <ScrollViewer x:Name="MappingPanel" Visibility="Collapsed">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Center" Spacing="12">
+                        <TextBlock FontSize="21" FontWeight="SemiBold" Text="Associar colunas" />
+                        <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Confirma as três colunas obrigatórias. As restantes são associadas automaticamente quando os nomes são reconhecidos." TextWrapping="Wrap" />
+                        <StackPanel x:Name="WorksheetArea" Spacing="6"><TextBlock Text="Folha" /><ComboBox x:Name="WorksheetBox" MinHeight="44" SelectionChanged="OnWorksheetChanged" /></StackPanel>
+                        <TextBlock Text="Nome comercial *" /><ComboBox x:Name="NameColumnBox" MinHeight="44" SelectionChanged="OnMappingChanged" />
+                        <TextBlock Text="Unidade base *" /><ComboBox x:Name="UnitColumnBox" MinHeight="44" SelectionChanged="OnMappingChanged" />
+                        <TextBlock Text="Quantidade inicial *" /><ComboBox x:Name="QuantityColumnBox" MinHeight="44" SelectionChanged="OnMappingChanged" />
+                        <Grid Margin="0,10,0,0"><Button MinHeight="44" Click="OnBack" Content="Voltar" /><Button HorizontalAlignment="Right" MinHeight="44" Click="OnCreateDraft" Content="Validar ficheiro" Style="{StaticResource NofarmaPrimaryButtonStyle}" /></Grid>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Grid x:Name="ValidationPanel" Visibility="Collapsed" RowSpacing="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <StackPanel Spacing="4"><TextBlock FontSize="21" FontWeight="SemiBold" Text="Resultado da validação" /><TextBlock x:Name="ValidationSummaryText" Foreground="{StaticResource NofarmaMutedBrush}" /></StackPanel>
+                    <Grid Grid.Row="1" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="3*" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions>
+                        <ListView x:Name="ImportRowsList" SelectionMode="Single" SelectionChanged="OnImportRowSelected"><ListView.Header><Grid MinHeight="44" Padding="12,0" Background="#EEF3F9" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="60" /><ColumnDefinition Width="2*" /><ColumnDefinition Width="110" /><ColumnDefinition Width="80" /></Grid.ColumnDefinitions><TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="Linha" /><TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" Text="Produto" /><TextBlock Grid.Column="2" VerticalAlignment="Center" FontWeight="SemiBold" Text="Estado" /><TextBlock Grid.Column="3" VerticalAlignment="Center" FontWeight="SemiBold" Text="Erros" /></Grid></ListView.Header><ListView.ItemTemplate><DataTemplate x:DataType="import:InventoryImportDraftRow"><Grid MinHeight="48" Padding="12,6" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="60" /><ColumnDefinition Width="2*" /><ColumnDefinition Width="110" /><ColumnDefinition Width="80" /></Grid.ColumnDefinitions><TextBlock VerticalAlignment="Center" Text="{x:Bind RowNumber}" /><TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Data.CommercialName}" /><TextBlock Grid.Column="2" VerticalAlignment="Center" Text="{x:Bind Status}" /><TextBlock Grid.Column="3" VerticalAlignment="Center" Text="{x:Bind Errors.Count}" /></Grid></DataTemplate></ListView.ItemTemplate></ListView>
+                        <Border x:Name="CorrectionPanel" Grid.Column="1" Padding="14" Background="#F7F9FC" BorderBrush="{StaticResource NofarmaBorderBrush}" BorderThickness="1" CornerRadius="8" Visibility="Collapsed">
+                            <ScrollViewer><StackPanel Spacing="7"><TextBlock FontSize="18" FontWeight="SemiBold" Text="Corrigir linha" /><TextBlock x:Name="CorrectionErrorsText" Foreground="#B42318" TextWrapping="Wrap" /><TextBlock Text="Nome comercial *" /><TextBox x:Name="CorrectionNameBox" MinHeight="40" /><TextBlock Text="Unidade base *" /><TextBox x:Name="CorrectionUnitBox" MinHeight="40" /><TextBlock Text="Tipo de produto" /><ComboBox x:Name="CorrectionTypeBox" MinHeight="40"><x:String>Geral</x:String><x:String>Medicamento</x:String></ComboBox><Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions><StackPanel Spacing="5"><TextBlock Text="Quantidade *" /><TextBox x:Name="CorrectionQuantityBox" MinHeight="40" InputScope="Number" /></StackPanel><StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="Factor *" /><TextBox x:Name="CorrectionFactorBox" MinHeight="40" InputScope="Number" /></StackPanel></Grid><TextBlock Text="Lote" /><TextBox x:Name="CorrectionLotBox" MinHeight="40" /><TextBlock Text="Validade" /><CalendarDatePicker x:Name="CorrectionExpiryPicker" MinHeight="40" /><Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions><StackPanel Spacing="5"><TextBlock Text="Compra (XOF)" /><TextBox x:Name="CorrectionPurchaseBox" MinHeight="40" InputScope="Number" /></StackPanel><StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="Venda (XOF)" /><TextBox x:Name="CorrectionSaleBox" MinHeight="40" InputScope="Number" /></StackPanel></Grid><TextBlock Text="Stock mínimo" /><TextBox x:Name="CorrectionMinimumBox" MinHeight="40" InputScope="Number" /><Button Margin="0,6,0,0" MinHeight="44" Click="OnSaveCorrection" Content="Guardar correcção" Style="{StaticResource NofarmaPrimaryButtonStyle}" /></StackPanel></ScrollViewer>
+                        </Border>
+                    </Grid>
+                    <Grid Grid.Row="2"><Button MinHeight="44" Click="OnBack" Content="Voltar às colunas" /><Button x:Name="ReviewButton" HorizontalAlignment="Right" MinHeight="44" Click="OnContinueToConfirmation" Content="Rever confirmação" Style="{StaticResource NofarmaPrimaryButtonStyle}" /></Grid>
+                </Grid>
+
+                <StackPanel x:Name="ConfirmationPanel" MaxWidth="720" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" Visibility="Collapsed">
+                    <FontIcon HorizontalAlignment="Center" FontSize="42" Foreground="{StaticResource NofarmaBlueBrush}" Glyph="&#xE73E;" />
+                    <TextBlock HorizontalAlignment="Center" FontSize="22" FontWeight="SemiBold" Text="Confirmar inventário" />
+                    <TextBlock x:Name="ConfirmationSummaryText" TextAlignment="Center" TextWrapping="Wrap" />
+                    <InfoBar IsClosable="False" IsOpen="True" Severity="Warning" Title="Licença necessária" Message="Podes preparar e guardar o rascunho sem internet. A aplicação só altera o stock quando a licença estiver activa." />
+                    <CheckBox x:Name="ExplicitConfirmationBox" Content="Verifiquei os dados e quero aplicar este inventário ao stock local." />
+                    <Grid><Button MinHeight="44" Click="OnBack" Content="Voltar à validação" /><Button x:Name="ConfirmImportButton" HorizontalAlignment="Right" MinHeight="44" Click="OnConfirmImport" Content="Aplicar inventário" Style="{StaticResource NofarmaPrimaryButtonStyle}" /></Grid>
+                </StackPanel>
+
+                <ProgressRing x:Name="ImportProgress" Width="38" Height="38" IsActive="False" Visibility="Collapsed" />
+                <InfoBar x:Name="ImportMessage" VerticalAlignment="Bottom" IsClosable="True" IsOpen="False" />
+            </Grid>
+        </Border>
+    </Grid>
+</Page>
