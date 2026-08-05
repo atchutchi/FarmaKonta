@@ -162,6 +162,7 @@ public sealed class SalesViewModel(ISalesPageOperations operations)
     public string DiscountText => FormatXof(TotalDiscountXof);
     public string TotalText => FormatXof(TotalXof);
     public string ChangeText => FormatXof(_changeXof);
+    public long TotalXofValue => TotalXof;
 
     private long SubtotalXof => _cartLines.Sum(line => line.GrossXof);
     private long TotalDiscountXof => checked(
@@ -250,6 +251,19 @@ public sealed class SalesViewModel(ISalesPageOperations operations)
         line.RequiresReview = false;
         line.ReviewMessage = null;
         InvalidateCompletion();
+        return true;
+    }
+
+    public bool RemoveLine(SaleCartLineViewModel line)
+    {
+        if (!_cartLines.Remove(line))
+        {
+            return false;
+        }
+        InvalidateCompletion();
+        StatusMessage = _cartLines.Count == 0
+            ? "O carrinho está vazio."
+            : "Produto removido do carrinho.";
         return true;
     }
 

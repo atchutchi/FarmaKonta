@@ -119,6 +119,9 @@ public sealed partial class AppShellPage : Page
 
         switch (destination)
         {
+            case "Vendas":
+                ModuleContent.Content = new SalesPage();
+                break;
             case "Produtos":
                 ModuleContent.Content = new ProductsPage();
                 break;
@@ -175,7 +178,6 @@ public sealed partial class AppShellPage : Page
 
     private static string DescriptionFor(string destination) => destination switch
     {
-        "Vendas" => "O ponto de venda entra numa fase posterior. Nenhuma venda fictícia é apresentada.",
         "Facturas" => "As facturas aparecerão depois da implementação fiscal e da configuração autorizada pela farmácia.",
         "Produtos" => "O catálogo local ainda não contém produtos.",
         "Stock" => "Os alertas de stock serão calculados a partir de movimentos reais quando o módulo estiver activo.",
