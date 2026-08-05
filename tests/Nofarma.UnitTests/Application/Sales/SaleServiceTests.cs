@@ -104,6 +104,9 @@ public sealed class SaleServiceTests
                 Assert.Equal(3, first.QuantityBase);
                 Assert.Equal(0, first.ResultingLotBalance);
                 Assert.Equal(400, first.OriginUnitCostXof);
+                Assert.Contains(
+                    completion.StockMovements,
+                    movement => movement.Id == first.StockMovementId);
             },
             second =>
             {

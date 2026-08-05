@@ -61,7 +61,7 @@
 - Criar `src/Nofarma.Infrastructure/Persistence/Configurations/SaleConfigurations.cs`.
 - Criar `src/Nofarma.Infrastructure/Persistence/SqliteSaleStore.cs`.
 - Modificar `src/Nofarma.Infrastructure/Persistence/NofarmaDbContext.cs` com os novos `DbSet` e protecção append-only.
-- Criar `src/Nofarma.Infrastructure/Persistence/Migrations/20260805090000_AddLocalSales.cs` e o respectivo ficheiro Designer.
+- Criar `src/Nofarma.Infrastructure/Persistence/Migrations/20260805134056_AddLocalSales.cs` e o respectivo ficheiro Designer.
 - Modificar `src/Nofarma.Infrastructure/Persistence/Migrations/NofarmaDbContextModelSnapshot.cs`.
 - Modificar `src/Nofarma.Infrastructure/Composition/ServiceCollectionExtensions.cs` para registar `ISaleStore` e `SaleService`.
 
@@ -309,7 +309,7 @@ git commit -m "feat: add sale stock movement and discount permission"
 - `ReceiptDetails(EntityId Id, EntityId SaleId, string Number, string PharmacyName, string OperatorName, UtcInstant CreatedAtUtc, IReadOnlyList<ReceiptLineDetails> Lines, IReadOnlyList<ReceiptPaymentDetails> Payments, long TotalXof, long ChangeXof, string DocumentLabel)`.
 - `SaleProductSnapshot(EntityId ProductId, EntityId PackageId, string Code, string Name, string PackageName, long PackageFactor, long SalePriceXof, bool RequiresPrescription, IReadOnlyList<SaleLotSnapshot> Lots)`.
 - `SaleLotSnapshot(StockLot Lot, long AvailableQuantityBase, long Version)`.
-- `SaleStockAllocation(EntityId SaleLineId, EntityId ProductId, EntityId LotId, long QuantityBase, long OriginUnitCostXof, long ExpectedLotVersion, long PreviousLotBalance, long ResultingLotBalance)`.
+- `SaleStockAllocation(EntityId SaleLineId, EntityId ProductId, EntityId LotId, EntityId StockMovementId, long QuantityBase, long OriginUnitCostXof, long ExpectedLotVersion, long PreviousLotBalance, long ResultingLotBalance)`.
 - `SaleCommandEnvelope(string IdempotencyKey, string RequestFingerprint)`.
 - `SaleCommandResult(string RequestFingerprint, SaleSummary Result)`.
 - `SaleOutboxEvent(EntityId Id, EntityId PharmacyId, EntityId DeviceId, string EventType, EntityId AggregateId, string PayloadJson, UtcInstant OccurredAtUtc)`.
@@ -415,8 +415,8 @@ git commit -m "feat: add sale application workflow"
 - Create: `src/Nofarma.Infrastructure/Persistence/Records/SaleCommandRecord.cs`
 - Create: `src/Nofarma.Infrastructure/Persistence/Configurations/SaleConfigurations.cs`
 - Modify: `src/Nofarma.Infrastructure/Persistence/NofarmaDbContext.cs`
-- Create: `src/Nofarma.Infrastructure/Persistence/Migrations/20260805090000_AddLocalSales.cs`
-- Create: `src/Nofarma.Infrastructure/Persistence/Migrations/20260805090000_AddLocalSales.Designer.cs`
+- Create: `src/Nofarma.Infrastructure/Persistence/Migrations/20260805134056_AddLocalSales.cs`
+- Create: `src/Nofarma.Infrastructure/Persistence/Migrations/20260805134056_AddLocalSales.Designer.cs`
 - Modify: `src/Nofarma.Infrastructure/Persistence/Migrations/NofarmaDbContextModelSnapshot.cs`
 - Create: `tests/Nofarma.IntegrationTests/Sales/SaleTransactionTests.cs`
 
@@ -450,7 +450,7 @@ dotnet test tests/Nofarma.IntegrationTests/Nofarma.IntegrationTests.csproj -c Re
 
 `SalePaymentRecord` inclui sequência, método, montante e referência.
 
-`SaleStockAllocationRecord` inclui venda, linha, produto, lote, quantidade base, custo unitário de origem capturado, saldo anterior e saldo resultante.
+`SaleStockAllocationRecord` inclui venda, linha, produto, lote, movimento de stock, quantidade base, custo unitário de origem capturado, saldo anterior e saldo resultante.
 
 `ReceiptRecord` inclui venda, número, tipo fixo `InternalNonFiscal`, conteúdo JSON e instante de criação.
 
@@ -481,7 +481,7 @@ Em `EnsureAppendOnlyRecords`, rejeitar `Modified` e `Deleted` para `SaleRecord`,
 dotnet ef migrations add AddLocalSales --project src/Nofarma.Infrastructure/Nofarma.Infrastructure.csproj --startup-project src/Nofarma.Infrastructure/Nofarma.Infrastructure.csproj --output-dir Persistence/Migrations
 ```
 
-Renomear o identificador gerado para `20260805090000_AddLocalSales` em ficheiro, atributo e snapshot para manter a referência exacta deste plano. Confirmar que a migração não elimina nem altera dados existentes.
+Manter o identificador gerado `20260805134056_AddLocalSales` em ficheiro, atributo e snapshot. Confirmar que a migração não elimina nem altera dados existentes.
 
 - [ ] **Step 7: Executar teste de migração e modelo**
 

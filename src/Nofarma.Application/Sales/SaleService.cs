@@ -188,16 +188,7 @@ public sealed class SaleService(
                 capturedCost = checked(
                     capturedCost + checked(lot.Lot.OriginCost.Amount * selection.QuantityBase));
                 workingBalances[selection.LotId] = resulting;
-                allocations.Add(new SaleStockAllocation(
-                    lineId,
-                    snapshot.ProductId,
-                    selection.LotId,
-                    selection.QuantityBase,
-                    lot.Lot.OriginCost.Amount,
-                    lot.Version,
-                    previous,
-                    resulting));
-                movements.Add(StockLedger.CreateMovement(
+                StockMovement movement = StockLedger.CreateMovement(
                     new StockOperation(
                         EntityId.New(),
                         context.PharmacyId,
@@ -210,7 +201,18 @@ public sealed class SaleService(
                         actor.UserId,
                         completedAt,
                         $"sale:{saleId.Value:N}:line:{lineId.Value:N}:lot:{selection.LotId.Value:N}"),
-                    previous));
+                    previous);
+                allocations.Add(new SaleStockAllocation(
+                    lineId,
+                    snapshot.ProductId,
+                    selection.LotId,
+                    movement.Id,
+                    selection.QuantityBase,
+                    lot.Lot.OriginCost.Amount,
+                    lot.Version,
+                    previous,
+                    resulting));
+                movements.Add(movement);
             }
             lines.Add(SaleLine.Create(
                 lineId,

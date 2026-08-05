@@ -9,6 +9,7 @@ public sealed record SaleStockAllocation(
     EntityId SaleLineId,
     EntityId ProductId,
     EntityId LotId,
+    EntityId StockMovementId,
     long QuantityBase,
     long OriginUnitCostXof,
     long ExpectedLotVersion,
