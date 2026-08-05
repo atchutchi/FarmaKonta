@@ -477,6 +477,37 @@ public sealed class SalesViewModel(ISalesPageOperations operations)
         }
     }
 
+    public async Task<ReceiptDetails?> ReloadLastReceiptAsync(CancellationToken cancellationToken)
+    {
+        if (LastReceipt is null)
+        {
+            ErrorMessage = "Ainda não existe um recibo concluído para consultar.";
+            return null;
+        }
+
+        try
+        {
+            ReceiptDetails? receipt = await operations.GetReceiptAsync(
+                LastReceipt.Id,
+                cancellationToken);
+            if (receipt is null)
+            {
+                ErrorMessage = "O último recibo já não está disponível neste computador.";
+                return null;
+            }
+            LastReceipt = receipt;
+            ErrorMessage = null;
+            return receipt;
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            ErrorMessage = SafeError(
+                exception,
+                "A venda foi concluída, mas não foi possível abrir a pré-visualização do recibo.");
+            return null;
+        }
+    }
+
     public void CloseActivePanel()
     {
         if (IsPaymentOpen)

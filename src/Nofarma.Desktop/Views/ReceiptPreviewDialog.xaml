@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentDialog
+    x:Class="Nofarma.Desktop.Views.ReceiptPreviewDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    DefaultButton="Primary"
+    PrimaryButtonText="Fechar"
+    Title="Pré-visualização do recibo">
+    <ScrollViewer MaxHeight="620" HorizontalScrollBarVisibility="Disabled">
+        <Border
+            Width="330"
+            Padding="22"
+            HorizontalAlignment="Center"
+            Background="White"
+            BorderBrush="{StaticResource NofarmaBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="4">
+            <StackPanel Spacing="9">
+                <Image Width="128" Height="58" HorizontalAlignment="Center" Source="ms-appx:///Assets/NofarmaLogo.png" Stretch="Uniform" />
+                <TextBlock x:Name="PharmacyText" HorizontalAlignment="Center" FontSize="17" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock x:Name="DocumentLabelText" HorizontalAlignment="Center" FontWeight="Bold" Text="Recibo interno não fiscal" TextAlignment="Center" />
+                <Rectangle Height="1" Margin="0,4" Fill="#CDD7E4" />
+                <TextBlock x:Name="NumberText" />
+                <TextBlock x:Name="DateText" />
+                <TextBlock x:Name="OperatorText" TextWrapping="Wrap" />
+                <Rectangle Height="1" Margin="0,4" Fill="#CDD7E4" />
+                <StackPanel x:Name="ReceiptLinesPanel" Spacing="7" />
+                <Rectangle Height="1" Margin="0,4" Fill="#CDD7E4" />
+                <StackPanel x:Name="ReceiptPaymentsPanel" Spacing="5" />
+                <Grid Margin="0,5,0,0">
+                    <TextBlock FontSize="17" FontWeight="Bold" Text="TOTAL" />
+                    <TextBlock x:Name="TotalText" HorizontalAlignment="Right" FontSize="18" FontWeight="Bold" />
+                </Grid>
+                <Grid>
+                    <TextBlock Text="Troco" />
+                    <TextBlock x:Name="ChangeText" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                </Grid>
+                <TextBlock
+                    Margin="0,6,0,0"
+                    Foreground="{StaticResource NofarmaMutedBrush}"
+                    Text="Documento interno. Não substitui a documentação fiscal emitida sob responsabilidade da farmácia."
+                    TextAlignment="Center"
+                    TextWrapping="Wrap" />
+                <Button
+                    MinHeight="44"
+                    HorizontalAlignment="Stretch"
+                    AutomationProperties.Name="Enviar recibo ao simulador de impressão"
+                    Click="OnSimulatePrint"
+                    Content="Simular impressão" />
+                <InfoBar
+                    x:Name="SimulationStatus"
+                    IsClosable="False"
+                    IsOpen="False"
+                    Message="Enviado ao simulador"
+                    Severity="Success" />
+            </StackPanel>
+        </Border>
+    </ScrollViewer>
+</ContentDialog>

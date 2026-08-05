@@ -212,6 +212,7 @@ public sealed partial class SalesPage : Page
         {
             HidePanels();
             ProductSearchBox.Focus(FocusState.Programmatic);
+            await ShowReceiptAsync(reload: false);
         }
         else
         {
@@ -304,6 +305,24 @@ public sealed partial class SalesPage : Page
         ProductSearchBox.Focus(FocusState.Programmatic);
     }
 
+    private async void OnShowLastReceipt(object sender, RoutedEventArgs e) =>
+        await ShowReceiptAsync(reload: true);
+
+    private async Task ShowReceiptAsync(bool reload)
+    {
+        ReceiptDetails? receipt = reload
+            ? await _viewModel.ReloadLastReceiptAsync(CancellationToken.None)
+            : _viewModel.LastReceipt;
+        if (receipt is null)
+        {
+            RefreshMessage();
+            return;
+        }
+
+        var dialog = new ReceiptPreviewDialog(receipt) { XamlRoot = XamlRoot };
+        _ = await dialog.ShowAsync();
+    }
+
     private void OnSearchAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         HidePanels();
@@ -356,6 +375,9 @@ public sealed partial class SalesPage : Page
         TotalText.Text = _viewModel.TotalText;
         CompleteSaleButton.IsEnabled = !_viewModel.IsSubmitting && _viewModel.CartLines.Count > 0;
         SubmitPaymentButton.IsEnabled = !_viewModel.IsSubmitting && _viewModel.CartLines.Count > 0;
+        LastReceiptButton.Visibility = _viewModel.LastReceipt is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         RefreshMessage();
         RefreshProductDetail();
     }

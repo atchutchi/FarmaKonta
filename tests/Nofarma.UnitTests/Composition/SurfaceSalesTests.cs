@@ -61,6 +61,35 @@ public sealed class SurfaceSalesTests
         Assert.Contains("OnEscapeAccelerator", code, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ReceiptPreviewIsInternalNonFiscalAndSimulationOnly()
+    {
+        string root = FindRepositoryRoot();
+        string xamlPath = Path.Combine(
+            root,
+            "src",
+            "Nofarma.Desktop",
+            "Views",
+            "ReceiptPreviewDialog.xaml");
+        string codePath = Path.Combine(
+            root,
+            "src",
+            "Nofarma.Desktop",
+            "Views",
+            "ReceiptPreviewDialog.xaml.cs");
+
+        Assert.True(File.Exists(xamlPath), "Falta a pré-visualização do recibo interno.");
+        Assert.True(File.Exists(codePath), "Falta a lógica do simulador de impressão.");
+        string xaml = File.ReadAllText(xamlPath);
+        string code = File.ReadAllText(codePath);
+        Assert.Contains("Recibo interno não fiscal", xaml, StringComparison.Ordinal);
+        Assert.Contains("Simular impressão", xaml, StringComparison.Ordinal);
+        Assert.Contains("Enviado ao simulador", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("Factura oficial", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DGCI autorizada", xaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("File.", code, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);

@@ -32,6 +32,13 @@
             </StackPanel>
             <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
                 <Button
+                    x:Name="LastReceiptButton"
+                    MinHeight="44"
+                    AutomationProperties.Name="Ver o último recibo interno"
+                    Click="OnShowLastReceipt"
+                    Content="Ver recibo"
+                    Visibility="Collapsed" />
+                <Button
                     MinHeight="44"
                     AutomationProperties.Name="Abrir vendas suspensas, atalho F6"
                     Click="OnOpenSuspendedSales"
@@ -303,7 +310,7 @@
                             VerticalAlignment="Center"
                             Spacing="8">
                             <FontIcon HorizontalAlignment="Center" FontSize="30" Foreground="{StaticResource NofarmaBlueBrush}" Glyph="&#xE7BF;" />
-                            <TextBlock HorizontalAlignment="Center" FontSize="17" FontWeight="SemiBold" Text="Ainda não existem produtos no carrinho" />
+                            <TextBlock HorizontalAlignment="Center" FontSize="17" FontWeight="SemiBold" Text="Ainda não existem produtos no carrinho" TextAlignment="Center" TextWrapping="Wrap" />
                             <TextBlock Foreground="{StaticResource NofarmaMutedBrush}" Text="Pesquisa um produto e adiciona-o. O stock só muda quando concluíres a venda." TextAlignment="Center" TextWrapping="Wrap" />
                         </StackPanel>
                     </Grid>

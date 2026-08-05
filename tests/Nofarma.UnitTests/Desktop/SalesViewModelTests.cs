@@ -104,6 +104,26 @@ public sealed class SalesViewModelTests
     }
 
     [Fact]
+    public async Task ReceiptCanBeReopenedWithoutCompletingTheSaleAgain()
+    {
+        var operations = new SalesOperations();
+        var viewModel = new SalesViewModel(operations);
+        viewModel.AddProduct(Product());
+        viewModel.OpenPayment();
+
+        Assert.True(await viewModel.CompleteAsync(
+            [new PaymentEntryInput(PaymentMethod.Cash, "2000", null)],
+            TestContext.Current.CancellationToken));
+        ReceiptDetails? reopened = await viewModel.ReloadLastReceiptAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(reopened);
+        Assert.Equal("Recibo interno não fiscal", reopened.DocumentLabel);
+        Assert.Equal(1, operations.CompleteCalls);
+        Assert.Equal(2, operations.ReceiptReadCalls);
+    }
+
+    [Fact]
     public async Task DoubleSubmissionUsesOneCallAndOneIdempotencyKey()
     {
         var operations = new SalesOperations { DelayCompletion = true };
@@ -231,6 +251,7 @@ public sealed class SalesViewModelTests
         public int FailuresRemaining { get; set; }
         public int SearchCalls { get; private set; }
         public int CompleteCalls { get; private set; }
+        public int ReceiptReadCalls { get; private set; }
         public CompleteSaleRequest? LastCompleteRequest { get; private set; }
         public List<string> CompletionKeys { get; } = [];
 
@@ -278,7 +299,10 @@ public sealed class SalesViewModelTests
 
         public Task<ReceiptDetails?> GetReceiptAsync(
             EntityId receiptId,
-            CancellationToken cancellationToken) => Task.FromResult<ReceiptDetails?>(new ReceiptDetails(
+            CancellationToken cancellationToken)
+        {
+            ReceiptReadCalls++;
+            return Task.FromResult<ReceiptDetails?>(new ReceiptDetails(
                 receiptId,
                 EntityId.New(),
                 "V-20260805-000001",
@@ -290,6 +314,7 @@ public sealed class SalesViewModelTests
                 2_000,
                 500,
                 "Recibo interno não fiscal"));
+        }
 
         public void CompleteSale(SaleSummary summary) => _completion.SetResult(summary);
     }
