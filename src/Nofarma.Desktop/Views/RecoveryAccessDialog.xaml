@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentDialog
+    x:Class="Nofarma.Desktop.Views.RecoveryAccessDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    DefaultButton="Primary"
+    PrimaryButtonClick="OnPrimaryButtonClick"
+    PrimaryButtonText="Redefinir palavra-passe"
+    SecondaryButtonText="Cancelar"
+    Title="Recuperar acesso offline">
+    <Grid MinWidth="420" MaxWidth="520">
+        <StackPanel x:Name="RecoveryFormPanel" Spacing="12">
+            <TextBlock
+                Foreground="{StaticResource NofarmaMutedBrush}"
+                Text="Usa o código único guardado durante a configuração. O código será substituído depois da recuperação."
+                TextWrapping="Wrap" />
+            <InfoBar
+                x:Name="RecoveryErrorBar"
+                IsClosable="True"
+                IsOpen="False"
+                Severity="Error" />
+            <TextBox
+                x:Name="RecoveryCodeBox"
+                AutomationProperties.Name="Código único de recuperação"
+                Header="Código único de recuperação"
+                MinHeight="40" />
+            <PasswordBox
+                x:Name="NewPasswordBox"
+                AutomationProperties.Name="Nova palavra-passe"
+                Header="Nova palavra-passe"
+                MinHeight="40"
+                PasswordRevealMode="Peek" />
+            <TextBlock
+                Foreground="{StaticResource NofarmaMutedBrush}"
+                Text="Mínimo de 12 caracteres com maiúscula, minúscula, número e símbolo."
+                TextWrapping="Wrap" />
+            <PasswordBox
+                x:Name="PasswordConfirmationBox"
+                AutomationProperties.Name="Confirmar nova palavra-passe"
+                Header="Confirmar nova palavra-passe"
+                MinHeight="40"
+                PasswordRevealMode="Peek" />
+        </StackPanel>
+
+        <StackPanel
+            x:Name="RecoverySuccessPanel"
+            Spacing="14"
+            Visibility="Collapsed">
+            <InfoBar
+                IsClosable="False"
+                IsOpen="True"
+                Message="A palavra-passe foi redefinida. Guarda agora o novo código de recuperação. O código anterior já não funciona."
+                Severity="Success" />
+            <Border
+                Padding="16"
+                Background="#F4F8FC"
+                BorderBrush="{StaticResource NofarmaBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <TextBlock
+                    x:Name="NewRecoveryCodeText"
+                    AutomationProperties.Name="Novo código único de recuperação"
+                    FontFamily="Consolas"
+                    FontSize="17"
+                    FontWeight="SemiBold"
+                    TextAlignment="Center"
+                    TextWrapping="Wrap" />
+            </Border>
+            <Button
+                MinHeight="44"
+                Click="OnCopyRecoveryCode"
+                Content="Copiar novo código" />
+            <CheckBox
+                x:Name="RecoverySavedCheckBox"
+                Checked="OnRecoverySavedChanged"
+                Content="Guardei o novo código fora deste computador"
+                Unchecked="OnRecoverySavedChanged" />
+        </StackPanel>
+    </Grid>
+</ContentDialog>
