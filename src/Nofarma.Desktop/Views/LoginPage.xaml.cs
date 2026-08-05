@@ -10,6 +10,7 @@ namespace Nofarma.Desktop.Views;
 public sealed partial class LoginPage : Page
 {
     private readonly LoginViewModel _viewModel;
+    private readonly LoginRecoveryViewModel _recoveryViewModel;
     private readonly NavigationService _navigation;
     private readonly DesktopLicenseConfiguration _licenseConfiguration;
     private bool _loaded;
@@ -17,6 +18,7 @@ public sealed partial class LoginPage : Page
     public LoginPage()
     {
         _viewModel = App.Services.GetRequiredService<LoginViewModel>();
+        _recoveryViewModel = App.Services.GetRequiredService<LoginRecoveryViewModel>();
         _navigation = App.Services.GetRequiredService<NavigationService>();
         _licenseConfiguration = App.Services.GetRequiredService<DesktopLicenseConfiguration>();
         InitializeComponent();
@@ -49,6 +51,15 @@ public sealed partial class LoginPage : Page
         await SignInAsync(
             CashierProfileBox.SelectedItem as LocalProfile,
             CashierCredentialBox.Password);
+
+    private async void OnRecoverAccess(object sender, RoutedEventArgs e)
+    {
+        var dialog = new RecoveryAccessDialog(_recoveryViewModel)
+        {
+            XamlRoot = XamlRoot
+        };
+        await dialog.ShowAsync();
+    }
 
     private async Task SignInAsync(LocalProfile? profile, string credential)
     {

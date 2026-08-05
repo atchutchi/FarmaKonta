@@ -66,6 +66,7 @@ postman/*.local.json
 
 # Ferramentas de desenho e ficheiros temporários
 .superpowers/
+.worktrees/
 .impeccable/live/
 tmp/
 temp/

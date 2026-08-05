@@ -85,6 +85,10 @@
                                 Click="OnAdministratorSignIn"
                                 Content="Iniciar sessão como administrador"
                                 Style="{StaticResource NofarmaPrimaryButtonStyle}" />
+                            <Button
+                                MinHeight="44"
+                                Click="OnRecoverAccess"
+                                Content="Recuperar acesso" />
                         </StackPanel>
                     </Border>
 

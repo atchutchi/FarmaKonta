@@ -18,6 +18,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<NavigationService>();
         services.AddTransient<SetupWizardViewModel>();
         services.AddTransient<LoginViewModel>();
+        services.AddTransient<ILoginRecoveryOperations, LoginRecoveryOperations>();
+        services.AddTransient<LoginRecoveryViewModel>();
         services.AddTransient<UsersViewModel>();
         services.AddTransient<IProductPageOperations, ProductPageOperations>();
         services.AddTransient<ProductsViewModel>();
