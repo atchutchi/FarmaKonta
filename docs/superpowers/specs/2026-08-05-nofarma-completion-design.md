@@ -2,7 +2,7 @@
 
 Data: 5 de Agosto de 2026
 
-Estado: proposta para aprovação
+Estado: aprovado para planeamento e implementação por gates
 
 ## 1. Objectivo
 
