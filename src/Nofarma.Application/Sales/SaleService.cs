@@ -112,6 +112,184 @@ public sealed class SaleService(
         throw new SaleConcurrencyException(SaleConcurrencyReason.Sequence);
     }
 
+    public async Task<IReadOnlyList<SuspendedSaleSummary>> GetSuspendedAsync(
+        LocalSession actor,
+        CancellationToken cancellationToken)
+    {
+        authorization.EnsureAllowed(actor, Capability.CreateSale);
+        SaleActorContext context = await GetContextAsync(actor, cancellationToken)
+            .ConfigureAwait(false);
+        return await store.GetSuspendedAsync(
+            context.PharmacyId,
+            context.DeviceId,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SuspendedSaleSummary> SuspendAsync(
+        LocalSession actor,
+        SuspendSaleRequest request,
+        CancellationToken cancellationToken)
+    {
+        authorization.EnsureAllowed(actor, Capability.CreateSale);
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateSuspendedLines(request.Lines);
+        if (request.Lines.Any(line => line.DiscountXof > 0))
+        {
+            authorization.EnsureAllowed(actor, Capability.ApplySaleDiscount);
+        }
+        LicensedOperationPolicyResult policy = await licensedOperationPolicy
+            .CanCreateAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!policy.IsAllowed)
+        {
+            throw new SaleOperationBlockedException(
+                policy.Code ?? "LICENSE_OPERATION_BLOCKED");
+        }
+
+        SaleActorContext context = await GetContextAsync(actor, cancellationToken)
+            .ConfigureAwait(false);
+        DateOnly businessDate = GetBusinessDate(context);
+        var lines = new List<SaleLine>(request.Lines.Count);
+        foreach (CompleteSaleLineRequest lineRequest in request.Lines)
+        {
+            SaleProductSnapshot snapshot = await store.GetProductSnapshotAsync(
+                context.PharmacyId,
+                lineRequest.ProductId,
+                lineRequest.PackageId,
+                businessDate,
+                cancellationToken).ConfigureAwait(false)
+                ?? throw new SalesValidationException(
+                    "Um produto do carrinho deixou de estar disponível para suspensão.");
+            ValidateSnapshot(lineRequest, snapshot);
+            lines.Add(SaleLine.Create(
+                EntityId.New(),
+                snapshot.ProductId,
+                snapshot.PackageId,
+                snapshot.Name,
+                snapshot.PackageName,
+                snapshot.PackageFactor,
+                lineRequest.QuantityPackages,
+                Money.Xof(snapshot.SalePriceXof),
+                Money.Xof(lineRequest.DiscountXof),
+                Money.Xof(0),
+                lineRequest.DiscountXof > 0 ? actor.UserId : null));
+        }
+
+        UtcInstant suspendedAt = clock.GetCurrentInstant();
+        SuspendedSale suspended = SuspendedSale.Create(
+            request.Id ?? EntityId.New(),
+            context.PharmacyId,
+            context.DeviceId,
+            actor.UserId,
+            request.Name,
+            lines,
+            suspendedAt);
+        AuditEvent audit = CreateSuspensionAudit(
+            context,
+            actor.UserId,
+            suspended.Id,
+            "sale.suspended",
+            suspendedAt);
+        return await store.SaveSuspendedAsync(suspended, audit, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<ResumedSaleDetails> ResumeSuspendedAsync(
+        LocalSession actor,
+        EntityId suspendedSaleId,
+        CancellationToken cancellationToken)
+    {
+        authorization.EnsureAllowed(actor, Capability.CreateSale);
+        EnsureIdentifier(suspendedSaleId, "A venda suspensa é obrigatória.");
+        SaleActorContext context = await GetContextAsync(actor, cancellationToken)
+            .ConfigureAwait(false);
+        SuspendedSaleDetails stored = await store.GetSuspendedDetailsAsync(
+            context.PharmacyId,
+            context.DeviceId,
+            suspendedSaleId,
+            cancellationToken).ConfigureAwait(false)
+            ?? throw new SalesValidationException("A venda suspensa já não está disponível.");
+        DateOnly businessDate = GetBusinessDate(context);
+        var lines = new List<ResumedSaleLineDetails>(stored.Lines.Count);
+        foreach (SuspendedSaleLineDetails line in stored.Lines)
+        {
+            SaleProductSnapshot? snapshot = await store.GetProductSnapshotAsync(
+                context.PharmacyId,
+                line.ProductId,
+                line.PackageId,
+                businessDate,
+                cancellationToken).ConfigureAwait(false);
+            if (snapshot is null)
+            {
+                lines.Add(new ResumedSaleLineDetails(
+                    line.ProductId,
+                    line.PackageId,
+                    null,
+                    null,
+                    null,
+                    null,
+                    line.QuantityPackages,
+                    line.DiscountXof,
+                    null,
+                    0,
+                    true));
+                continue;
+            }
+            long requiredQuantityBase;
+            try
+            {
+                requiredQuantityBase = checked(
+                    snapshot.PackageFactor * line.QuantityPackages);
+            }
+            catch (OverflowException)
+            {
+                requiredQuantityBase = long.MaxValue;
+            }
+            long available = snapshot.Lots.Sum(lot => lot.AvailableQuantityBase);
+            lines.Add(new ResumedSaleLineDetails(
+                line.ProductId,
+                line.PackageId,
+                snapshot.Code,
+                snapshot.Name,
+                snapshot.PackageName,
+                snapshot.PackageFactor,
+                line.QuantityPackages,
+                line.DiscountXof,
+                snapshot.SalePriceXof,
+                available,
+                available < requiredQuantityBase));
+        }
+        return new ResumedSaleDetails(
+            stored.Id,
+            stored.Name,
+            lines.AsReadOnly(),
+            stored.SuspendedAtUtc);
+    }
+
+    public async Task<bool> DeleteSuspendedAsync(
+        LocalSession actor,
+        EntityId suspendedSaleId,
+        CancellationToken cancellationToken)
+    {
+        authorization.EnsureAllowed(actor, Capability.CreateSale);
+        EnsureIdentifier(suspendedSaleId, "A venda suspensa é obrigatória.");
+        SaleActorContext context = await GetContextAsync(actor, cancellationToken)
+            .ConfigureAwait(false);
+        UtcInstant occurredAt = clock.GetCurrentInstant();
+        AuditEvent audit = CreateSuspensionAudit(
+            context,
+            actor.UserId,
+            suspendedSaleId,
+            "sale.suspension_deleted",
+            occurredAt);
+        return await store.DeleteSuspendedAsync(
+            context.PharmacyId,
+            context.DeviceId,
+            suspendedSaleId,
+            audit,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<SaleCompletion> PrepareCompletionAsync(
         LocalSession actor,
         SaleActorContext context,
@@ -389,6 +567,48 @@ public sealed class SaleService(
         {
             throw new SalesValidationException(
                 "O mesmo produto e embalagem não podem aparecer em linhas repetidas.");
+        }
+    }
+
+    private static void ValidateSuspendedLines(
+        IReadOnlyCollection<CompleteSaleLineRequest> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        if (lines.Count == 0)
+        {
+            throw new SalesValidationException(
+                "A venda suspensa deve ter pelo menos uma linha.");
+        }
+        if (lines.Select(line => (line.ProductId, line.PackageId)).Distinct().Count() != lines.Count)
+        {
+            throw new SalesValidationException(
+                "O mesmo produto e embalagem não podem aparecer em linhas repetidas.");
+        }
+    }
+
+    private static AuditEvent CreateSuspensionAudit(
+        SaleActorContext context,
+        EntityId actorUserId,
+        EntityId suspendedSaleId,
+        string action,
+        UtcInstant occurredAt) => new(
+            EntityId.New(),
+            context.PharmacyId,
+            context.DeviceId,
+            actorUserId,
+            action,
+            "SuspendedSale",
+            suspendedSaleId.Value.ToString("D"),
+            occurredAt,
+            AuditOutcome.Success,
+            null,
+            "{}");
+
+    private static void EnsureIdentifier(EntityId id, string message)
+    {
+        if (id.Value == Guid.Empty)
+        {
+            throw new SalesValidationException(message);
         }
     }
 

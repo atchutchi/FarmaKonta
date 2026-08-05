@@ -77,6 +77,25 @@ public sealed record SuspendedSaleDetails(
     IReadOnlyList<SuspendedSaleLineDetails> Lines,
     UtcInstant SuspendedAtUtc);
 
+public sealed record ResumedSaleLineDetails(
+    EntityId ProductId,
+    EntityId PackageId,
+    string? Code,
+    string? Name,
+    string? PackageName,
+    long? PackageFactor,
+    long QuantityPackages,
+    long DiscountXof,
+    long? SalePriceXof,
+    long AvailableQuantityBase,
+    bool RequiresReview);
+
+public sealed record ResumedSaleDetails(
+    EntityId Id,
+    string? Name,
+    IReadOnlyList<ResumedSaleLineDetails> Lines,
+    UtcInstant SuspendedAtUtc);
+
 public sealed record ReceiptLineDetails(
     string Description,
     string UnitName,

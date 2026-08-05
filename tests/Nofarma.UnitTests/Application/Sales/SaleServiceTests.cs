@@ -260,6 +260,86 @@ public sealed class SaleServiceTests
         Assert.Equal("amox", fixture.Store.LastSearchQuery);
     }
 
+    [Fact]
+    public async Task SuspendRejectsAnEmptyCart()
+    {
+        var fixture = new Fixture();
+
+        await Assert.ThrowsAsync<SalesValidationException>(() => fixture.Service.SuspendAsync(
+            fixture.Session(),
+            new SuspendSaleRequest(null, null, []),
+            TestContext.Current.CancellationToken));
+
+        Assert.Null(fixture.Store.SavedSuspendedSale);
+    }
+
+    [Fact]
+    public async Task SuspendCreatesACartWithoutPaymentsOrOperationalEffects()
+    {
+        var fixture = new Fixture();
+        var request = new SuspendSaleRequest(
+            null,
+            "Cliente balcão",
+            [new CompleteSaleLineRequest(fixture.ProductId, fixture.PackageId, 2, 0)]);
+
+        SuspendedSaleSummary result = await fixture.Service.SuspendAsync(
+            fixture.Session(),
+            request,
+            TestContext.Current.CancellationToken);
+
+        SuspendedSale saved = Assert.IsType<SuspendedSale>(fixture.Store.SavedSuspendedSale);
+        Assert.Equal(result.Id, saved.Id);
+        Assert.Equal("Cliente balcão", saved.Name);
+        Assert.Equal(2, Assert.Single(saved.Lines).QuantityPackages);
+        Assert.Equal("sale.suspended", fixture.Store.SuspendedAudit?.Action);
+        Assert.Null(fixture.Store.SavedCompletion);
+    }
+
+    [Fact]
+    public async Task ResumeRefreshesPriceAndMarksInsufficientStockForReview()
+    {
+        var fixture = new Fixture();
+        EntityId suspendedId = EntityId.New();
+        fixture.Store.SuspendedDetails = new SuspendedSaleDetails(
+            suspendedId,
+            "Entrega",
+            [new SuspendedSaleLineDetails(fixture.ProductId, fixture.PackageId, 2, 0)],
+            Now);
+        fixture.Store.ProductSnapshot = fixture.Product(lotQuantities: [1]) with
+        {
+            SalePriceXof = 2_500
+        };
+
+        ResumedSaleDetails resumed = await fixture.Service.ResumeSuspendedAsync(
+            fixture.Session(),
+            suspendedId,
+            TestContext.Current.CancellationToken);
+
+        ResumedSaleLineDetails line = Assert.Single(resumed.Lines);
+        Assert.Equal(2_500, line.SalePriceXof);
+        Assert.Equal(1, line.AvailableQuantityBase);
+        Assert.True(line.RequiresReview);
+    }
+
+    [Fact]
+    public async Task DeleteSuspendedUsesTheCurrentPharmacyAndDevice()
+    {
+        var fixture = new Fixture();
+        EntityId suspendedId = EntityId.New();
+        fixture.Store.DeleteSuspendedResult = true;
+
+        bool deleted = await fixture.Service.DeleteSuspendedAsync(
+            fixture.Session(),
+            suspendedId,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(deleted);
+        Assert.Equal(fixture.PharmacyId, fixture.Store.DeletedPharmacyId);
+        Assert.Equal(fixture.DeviceId, fixture.Store.DeletedDeviceId);
+        Assert.Equal(suspendedId, fixture.Store.DeletedSuspendedSaleId);
+        Assert.Equal("sale.suspension_deleted", fixture.Store.DeletedAudit?.Action);
+    }
+
     private sealed class Fixture
     {
         public EntityId PharmacyId { get; } = EntityId.New();
@@ -409,6 +489,14 @@ public sealed class SaleServiceTests
         public SaleCompletion? SavedCompletion { get; private set; }
         public IReadOnlyList<SaleProductResult> SearchResults { get; set; } = [];
         public string? LastSearchQuery { get; private set; }
+        public SuspendedSale? SavedSuspendedSale { get; private set; }
+        public AuditEvent? SuspendedAudit { get; private set; }
+        public SuspendedSaleDetails? SuspendedDetails { get; set; }
+        public bool DeleteSuspendedResult { get; set; }
+        public EntityId? DeletedPharmacyId { get; private set; }
+        public EntityId? DeletedDeviceId { get; private set; }
+        public EntityId? DeletedSuspendedSaleId { get; private set; }
+        public AuditEvent? DeletedAudit { get; private set; }
 
         public Task<SaleActorContext?> GetActorContextAsync(
             EntityId userId,
@@ -483,19 +571,36 @@ public sealed class SaleServiceTests
             EntityId deviceId,
             EntityId suspendedSaleId,
             CancellationToken cancellationToken) =>
-            Task.FromResult<SuspendedSaleDetails?>(null);
+            Task.FromResult(SuspendedDetails);
 
         public Task<SuspendedSaleSummary> SaveSuspendedAsync(
             SuspendedSale sale,
             AuditEvent auditEvent,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
+            CancellationToken cancellationToken)
+        {
+            SavedSuspendedSale = sale;
+            SuspendedAudit = auditEvent;
+            return Task.FromResult(new SuspendedSaleSummary(
+                sale.Id,
+                sale.Name,
+                sale.Lines.Count,
+                sale.Lines.Sum(line => line.Net.Amount),
+                sale.SuspendedAt));
+        }
 
         public Task<bool> DeleteSuspendedAsync(
             EntityId pharmacyId,
             EntityId deviceId,
             EntityId suspendedSaleId,
             AuditEvent auditEvent,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
+            CancellationToken cancellationToken)
+        {
+            DeletedPharmacyId = pharmacyId;
+            DeletedDeviceId = deviceId;
+            DeletedSuspendedSaleId = suspendedSaleId;
+            DeletedAudit = auditEvent;
+            return Task.FromResult(DeleteSuspendedResult);
+        }
 
         public Task<ReceiptDetails?> GetReceiptAsync(
             EntityId pharmacyId,

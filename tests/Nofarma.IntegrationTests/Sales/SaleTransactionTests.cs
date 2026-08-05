@@ -7,6 +7,7 @@ using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
 using Nofarma.Application.Licensing;
 using Nofarma.Application.Sales;
+using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Catalog;
 using Nofarma.Domain.Common;
 using Nofarma.Domain.Identity;
@@ -327,6 +328,97 @@ public sealed class SaleTransactionTests
             .Select(record => record.ExpectedCashXof)
             .SingleAsync(cancellationToken));
     }
+
+    [Fact]
+    public async Task SuspendResumeAndDeleteHaveNoStockCashOrSaleEffects()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        await using SalesDatabase fixture = await SalesDatabase.CreateAsync();
+        var request = new SuspendSaleRequest(
+            null,
+            "Cliente balcão",
+            [new CompleteSaleLineRequest(fixture.ProductId, fixture.PackageId, 3, 0)]);
+
+        SuspendedSaleSummary suspended = await fixture.Service.SuspendAsync(
+            fixture.Session(),
+            request,
+            cancellationToken);
+        suspended = await fixture.Service.SuspendAsync(
+            fixture.Session(),
+            request with { Id = suspended.Id, Name = "Cliente actualizado" },
+            cancellationToken);
+        Assert.Equal("Cliente actualizado", suspended.Name);
+        Assert.Single(await fixture.Service.GetSuspendedAsync(
+            fixture.Session(),
+            cancellationToken));
+
+        await using (var stockChange = new NofarmaDbContext(fixture.Options))
+        {
+            StockLotRecord first = await stockChange.StockLots.SingleAsync(
+                record => record.Id == fixture.FirstLotId.Value,
+                cancellationToken);
+            StockLotRecord second = await stockChange.StockLots.SingleAsync(
+                record => record.Id == fixture.SecondLotId.Value,
+                cancellationToken);
+            first.AvailableQuantityBase = 0;
+            first.RowVersion++;
+            second.AvailableQuantityBase = 2;
+            second.RowVersion++;
+            await stockChange.SaveChangesAsync(cancellationToken);
+        }
+
+        ResumedSaleDetails resumed = await fixture.Service.ResumeSuspendedAsync(
+            fixture.Session(),
+            suspended.Id,
+            cancellationToken);
+        ResumedSaleLineDetails line = Assert.Single(resumed.Lines);
+        Assert.True(line.RequiresReview);
+        Assert.Equal(2, line.AvailableQuantityBase);
+
+        var store = new SqliteSaleStore(fixture.Options);
+        EntityId foreignPharmacyId = EntityId.New();
+        Assert.False(await store.DeleteSuspendedAsync(
+            foreignPharmacyId,
+            fixture.DeviceId,
+            suspended.Id,
+            Audit(suspended.Id, foreignPharmacyId, fixture.DeviceId),
+            cancellationToken));
+        Assert.True(await fixture.Service.DeleteSuspendedAsync(
+            fixture.Session(),
+            suspended.Id,
+            cancellationToken));
+
+        await using var verification = new NofarmaDbContext(fixture.Options);
+        Assert.Equal(0, await verification.Sales.CountAsync(cancellationToken));
+        Assert.Equal(0, await verification.SalePayments.CountAsync(cancellationToken));
+        Assert.Equal(0, await verification.StockMovements.CountAsync(cancellationToken));
+        Assert.Equal(0, await verification.CashMovements.CountAsync(cancellationToken));
+        Assert.Equal(0, await verification.Receipts.CountAsync(cancellationToken));
+        Assert.Equal(0, await verification.SaleCommands.CountAsync(cancellationToken));
+        Assert.Equal(0, await verification.OutboxEvents.CountAsync(cancellationToken));
+        Assert.Equal(0, await verification.SuspendedSales.CountAsync(cancellationToken));
+        Assert.Equal(0, await verification.SuspendedSaleLines.CountAsync(cancellationToken));
+        Assert.Equal(3, await verification.AuditEvents.CountAsync(cancellationToken));
+        Assert.Equal(10_000, await verification.CashShifts
+            .Select(record => record.ExpectedCashXof)
+            .SingleAsync(cancellationToken));
+    }
+
+    private static AuditEvent Audit(
+        EntityId suspendedSaleId,
+        EntityId pharmacyId,
+        EntityId deviceId) => new(
+            EntityId.New(),
+            pharmacyId,
+            deviceId,
+            EntityId.New(),
+            "sale.suspension_deleted",
+            "SuspendedSale",
+            suspendedSaleId.Value.ToString("D"),
+            UtcInstant.From(new DateTimeOffset(2026, 8, 5, 12, 0, 0, TimeSpan.Zero)),
+            AuditOutcome.Success,
+            null,
+            "{}");
 
     private sealed class SalesDatabase(
         string directory,

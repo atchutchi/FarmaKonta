@@ -306,32 +306,187 @@ public sealed class SqliteSaleStore(
         return MapSummary(completion);
     }
 
-    public Task<IReadOnlyList<SuspendedSaleSummary>> GetSuspendedAsync(
+    public async Task<IReadOnlyList<SuspendedSaleSummary>> GetSuspendedAsync(
         EntityId pharmacyId,
         EntityId deviceId,
-        CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<SuspendedSaleSummary>>([]);
+        CancellationToken cancellationToken)
+    {
+        await using var db = new NofarmaDbContext(options);
+        SuspendedSaleRecord[] sales = await db.SuspendedSales.AsNoTracking()
+            .Where(record => record.PharmacyId == pharmacyId.Value &&
+                record.DeviceId == deviceId.Value)
+            .ToArrayAsync(cancellationToken).ConfigureAwait(false);
+        sales = sales.OrderByDescending(record => record.SuspendedAtUtc).ToArray();
+        if (sales.Length == 0)
+        {
+            return [];
+        }
+        Guid[] saleIds = sales.Select(record => record.Id).ToArray();
+        var lines = await (
+            from line in db.SuspendedSaleLines.AsNoTracking()
+            join package in db.ProductPackages.AsNoTracking()
+                on line.PackageId equals package.Id
+            join product in db.Products.AsNoTracking()
+                on line.ProductId equals product.Id
+            where saleIds.Contains(line.SuspendedSaleId)
+            select new
+            {
+                line.SuspendedSaleId,
+                line.QuantityPackages,
+                line.DiscountXof,
+                product.SalePriceXof,
+                package.FactorToBaseUnit
+            }).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+        return sales.Select(sale =>
+        {
+            var saleLines = lines.Where(line => line.SuspendedSaleId == sale.Id).ToArray();
+            long estimated = saleLines.Sum(line => checked(
+                checked(line.SalePriceXof * line.FactorToBaseUnit) * line.QuantityPackages -
+                line.DiscountXof));
+            return new SuspendedSaleSummary(
+                new EntityId(sale.Id),
+                sale.Name,
+                saleLines.Length,
+                estimated,
+                UtcInstant.From(sale.SuspendedAtUtc));
+        }).ToArray();
+    }
 
-    public Task<SuspendedSaleDetails?> GetSuspendedDetailsAsync(
+    public async Task<SuspendedSaleDetails?> GetSuspendedDetailsAsync(
         EntityId pharmacyId,
         EntityId deviceId,
         EntityId suspendedSaleId,
-        CancellationToken cancellationToken) =>
-        Task.FromResult<SuspendedSaleDetails?>(null);
+        CancellationToken cancellationToken)
+    {
+        await using var db = new NofarmaDbContext(options);
+        SuspendedSaleRecord? sale = await db.SuspendedSales.AsNoTracking()
+            .SingleOrDefaultAsync(
+                record => record.Id == suspendedSaleId.Value &&
+                    record.PharmacyId == pharmacyId.Value &&
+                    record.DeviceId == deviceId.Value,
+                cancellationToken).ConfigureAwait(false);
+        if (sale is null)
+        {
+            return null;
+        }
+        SuspendedSaleLineDetails[] lines = await db.SuspendedSaleLines.AsNoTracking()
+            .Where(record => record.SuspendedSaleId == sale.Id)
+            .OrderBy(record => record.Sequence)
+            .Select(record => new SuspendedSaleLineDetails(
+                new EntityId(record.ProductId),
+                new EntityId(record.PackageId),
+                record.QuantityPackages,
+                record.DiscountXof))
+            .ToArrayAsync(cancellationToken).ConfigureAwait(false);
+        return new SuspendedSaleDetails(
+            new EntityId(sale.Id),
+            sale.Name,
+            lines,
+            UtcInstant.From(sale.SuspendedAtUtc));
+    }
 
-    public Task<SuspendedSaleSummary> SaveSuspendedAsync(
+    public async Task<SuspendedSaleSummary> SaveSuspendedAsync(
         SuspendedSale sale,
         Domain.Auditing.AuditEvent auditEvent,
-        CancellationToken cancellationToken) =>
-        throw new NotSupportedException("As vendas suspensas entram na tarefa seguinte.");
+        CancellationToken cancellationToken)
+    {
+        ValidateSuspensionAudit(sale, auditEvent, "sale.suspended");
+        await using var db = new NofarmaDbContext(options);
+        await db.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var connection = (SqliteConnection)db.Database.GetDbConnection();
+        await using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
+        db.Database.UseTransaction(transaction);
+        SuspendedSaleRecord? existing = await db.SuspendedSales.SingleOrDefaultAsync(
+            record => record.Id == sale.Id.Value,
+            cancellationToken).ConfigureAwait(false);
+        if (existing is not null &&
+            (existing.PharmacyId != sale.PharmacyId.Value ||
+             existing.DeviceId != sale.DeviceId.Value))
+        {
+            throw new SalesValidationException(
+                "A venda suspensa pertence a outra farmácia ou dispositivo.");
+        }
+        if (existing is null)
+        {
+            db.SuspendedSales.Add(new SuspendedSaleRecord
+            {
+                Id = sale.Id.Value,
+                PharmacyId = sale.PharmacyId.Value,
+                DeviceId = sale.DeviceId.Value,
+                UserId = sale.UserId.Value,
+                Name = sale.Name,
+                SuspendedAtUtc = sale.SuspendedAt.Value,
+                RowVersion = 1
+            });
+        }
+        else
+        {
+            existing.UserId = sale.UserId.Value;
+            existing.Name = sale.Name;
+            existing.SuspendedAtUtc = sale.SuspendedAt.Value;
+            existing.RowVersion++;
+            await db.SuspendedSaleLines
+                .Where(record => record.SuspendedSaleId == sale.Id.Value)
+                .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+        }
+        for (int index = 0; index < sale.Lines.Count; index++)
+        {
+            SaleLine line = sale.Lines[index];
+            db.SuspendedSaleLines.Add(new SuspendedSaleLineRecord
+            {
+                Id = Guid.NewGuid(),
+                SuspendedSaleId = sale.Id.Value,
+                Sequence = index + 1,
+                ProductId = line.ProductId.Value,
+                PackageId = line.PackageId.Value,
+                QuantityPackages = line.QuantityPackages,
+                DiscountXof = line.Discount.Amount
+            });
+        }
+        db.AuditEvents.Add(InventoryPersistenceMapper.MapAudit(auditEvent));
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new SuspendedSaleSummary(
+            sale.Id,
+            sale.Name,
+            sale.Lines.Count,
+            sale.Lines.Sum(line => line.Net.Amount),
+            sale.SuspendedAt);
+    }
 
-    public Task<bool> DeleteSuspendedAsync(
+    public async Task<bool> DeleteSuspendedAsync(
         EntityId pharmacyId,
         EntityId deviceId,
         EntityId suspendedSaleId,
         Domain.Auditing.AuditEvent auditEvent,
-        CancellationToken cancellationToken) =>
-        throw new NotSupportedException("As vendas suspensas entram na tarefa seguinte.");
+        CancellationToken cancellationToken)
+    {
+        ValidateSuspensionDeleteAudit(
+            pharmacyId,
+            deviceId,
+            suspendedSaleId,
+            auditEvent);
+        await using var db = new NofarmaDbContext(options);
+        await db.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var connection = (SqliteConnection)db.Database.GetDbConnection();
+        await using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
+        db.Database.UseTransaction(transaction);
+        SuspendedSaleRecord? sale = await db.SuspendedSales.SingleOrDefaultAsync(
+            record => record.Id == suspendedSaleId.Value &&
+                record.PharmacyId == pharmacyId.Value &&
+                record.DeviceId == deviceId.Value,
+            cancellationToken).ConfigureAwait(false);
+        if (sale is null)
+        {
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+        db.SuspendedSales.Remove(sale);
+        db.AuditEvents.Add(InventoryPersistenceMapper.MapAudit(auditEvent));
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
 
     public async Task<ReceiptDetails?> GetReceiptAsync(
         EntityId pharmacyId,
@@ -614,6 +769,41 @@ public sealed class SqliteSaleStore(
                     movement.ResultingLotBalance == allocation.ResultingLotBalance)))
         {
             throw new SalesValidationException("A unidade de trabalho da venda não é válida.");
+        }
+    }
+
+    private static void ValidateSuspensionAudit(
+        SuspendedSale sale,
+        Domain.Auditing.AuditEvent audit,
+        string action)
+    {
+        ArgumentNullException.ThrowIfNull(sale);
+        if (audit.PharmacyId != sale.PharmacyId ||
+            audit.DeviceId != sale.DeviceId ||
+            audit.UserId != sale.UserId ||
+            audit.Action != action ||
+            audit.ObjectType != "SuspendedSale" ||
+            audit.ObjectId != sale.Id.Value.ToString("D"))
+        {
+            throw new SalesValidationException(
+                "A auditoria da venda suspensa não é válida.");
+        }
+    }
+
+    private static void ValidateSuspensionDeleteAudit(
+        EntityId pharmacyId,
+        EntityId deviceId,
+        EntityId suspendedSaleId,
+        Domain.Auditing.AuditEvent audit)
+    {
+        if (audit.PharmacyId != pharmacyId ||
+            audit.DeviceId != deviceId ||
+            audit.Action != "sale.suspension_deleted" ||
+            audit.ObjectType != "SuspendedSale" ||
+            audit.ObjectId != suspendedSaleId.Value.ToString("D"))
+        {
+            throw new SalesValidationException(
+                "A auditoria da remoção da venda suspensa não é válida.");
         }
     }
 
