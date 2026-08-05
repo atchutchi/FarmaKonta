@@ -33,6 +33,7 @@
     <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\PurchasesViewModel.cs" Link="Desktop\PurchasesViewModel.cs" />
     <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\InventoryImportViewModel.cs" Link="Desktop\InventoryImportViewModel.cs" />
     <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\CashViewModel.cs" Link="Desktop\CashViewModel.cs" />
+    <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\SalesViewModel.cs" Link="Desktop\SalesViewModel.cs" />
     <Compile Include="..\..\src\Nofarma.Desktop\ViewModels\LicenseViewModel.cs" Link="Desktop\LicenseViewModel.cs" />
     <Compile Include="..\..\src\Nofarma.Desktop\Services\LicensePageOperations.cs" Link="Desktop\LicensePageOperations.cs" />
     <Compile Include="..\..\src\Nofarma.Desktop\Services\DesktopLicenseConfiguration.cs" Link="Desktop\DesktopLicenseConfiguration.cs" />

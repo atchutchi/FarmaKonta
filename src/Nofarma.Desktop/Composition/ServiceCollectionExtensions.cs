@@ -29,6 +29,8 @@ public static class ServiceCollectionExtensions
         services.AddTransient<PurchasesViewModel>();
         services.AddTransient<ICashPageOperations, CashPageOperations>();
         services.AddTransient<CashViewModel>();
+        services.AddTransient<ISalesPageOperations, SalesPageOperations>();
+        services.AddTransient<SalesViewModel>();
         services.AddTransient<IInventoryImportPageOperations, InventoryImportPageOperations>();
         services.AddTransient<InventoryImportViewModel>();
         services.AddSingleton<LicensePageOperations>();

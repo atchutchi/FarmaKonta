@@ -290,6 +290,21 @@ public sealed class SaleService(
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<ReceiptDetails?> GetReceiptAsync(
+        LocalSession actor,
+        EntityId receiptId,
+        CancellationToken cancellationToken)
+    {
+        authorization.EnsureAllowed(actor, Capability.CreateSale);
+        EnsureIdentifier(receiptId, "O recibo é obrigatório.");
+        SaleActorContext context = await GetContextAsync(actor, cancellationToken)
+            .ConfigureAwait(false);
+        return await store.GetReceiptAsync(
+            context.PharmacyId,
+            receiptId,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<SaleCompletion> PrepareCompletionAsync(
         LocalSession actor,
         SaleActorContext context,
