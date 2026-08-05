@@ -1,8 +1,7 @@
 using Nofarma.Application.Abstractions;
-using Nofarma.Application.Licensing;
 using Nofarma.Application.Identity.Authentication;
 using Nofarma.Application.Identity.Authorization;
-using Nofarma.Application.Inventory;
+using Nofarma.Application.Licensing;
 using Nofarma.Domain.Auditing;
 using Nofarma.Domain.Common;
 using Nofarma.Domain.Identity;

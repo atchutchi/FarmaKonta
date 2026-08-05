@@ -1,5 +1,5 @@
-using System.Security.Cryptography;
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Nofarma.Application.Abstractions;
 using Nofarma.Application.Identity.Authentication;
