@@ -300,8 +300,8 @@ git commit -m "feat: add sale stock movement and discount permission"
 - `CompleteSaleRequest(IReadOnlyCollection<CompleteSaleLineRequest> Lines, long TotalDiscountXof, EntityId? TotalDiscountAuthorizedByUserId, IReadOnlyCollection<SalePaymentRequest> Payments, string IdempotencyKey)`.
 - `CompleteSaleLineRequest(EntityId ProductId, EntityId PackageId, long QuantityPackages, long DiscountXof, EntityId? DiscountAuthorizedByUserId)`.
 - `SalePaymentRequest(PaymentMethod Method, long AmountXof, string? Reference)`.
-- `SaleActorContext(EntityId PharmacyId, EntityId DeviceId, EntityId ActorUserId)`.
-- `SaleProductResult(EntityId ProductId, EntityId PackageId, string Code, string Name, string PackageName, long PackageFactor, long AvailableQuantityBase, long SalePriceXof, DateOnly? EarliestExpiry, bool RequiresPrescription)`.
+- `SaleActorContext(EntityId PharmacyId, string PharmacyName, EntityId DeviceId, EntityId ActorUserId, string ActorDisplayName)`.
+- `SaleProductResult(EntityId ProductId, EntityId PackageId, string Code, string Name, string PackageName, long PackageFactor, long AvailableQuantityBase, long SalePriceXof, string? EarliestLotNumber, DateOnly? EarliestExpiry, bool RequiresPrescription)`.
 - `SaleSummary(EntityId Id, string Number, long TotalXof, long PaidXof, long ChangeXof, UtcInstant CompletedAtUtc, EntityId ReceiptId)`.
 - `SuspendedSaleSummary(EntityId Id, string? Name, int LineCount, long EstimatedTotalXof, UtcInstant SuspendedAtUtc)`.
 - `ReceiptLineDetails(string Description, string UnitName, long QuantityPackages, long UnitPriceXof, long DiscountXof, long TotalXof)`.
@@ -324,6 +324,7 @@ Criar um `FakeSaleStore`, relógio fixo e política de licença controlável. Co
 Utilizador sem CreateSale recebe AuthorizationException antes de consultar stock
 Licença bloqueada recebe SaleOperationBlockedException com o código da política
 Sem turno aberto recebe SalesValidationException
+Turno aberto por outro utilizador no mesmo dispositivo recebe SalesValidationException
 Carrinho vazio recebe SalesValidationException
 Desconto de linha sem ApplySaleDiscount recebe AuthorizationException
 Desconto total sem ApplySaleDiscount recebe AuthorizationException
@@ -536,7 +537,7 @@ dotnet test tests/Nofarma.IntegrationTests/Nofarma.IntegrationTests.csproj -c Re
 
 - [ ] **Step 3: Implementar leituras sem rastreamento**
 
-Aplicar sempre `PharmacyId` e `DeviceId` nos filtros. A pesquisa aceita nome, código e código de barras, usa `Take(limit)` com limite máximo 50 e devolve apenas produtos activos com saldo vendável positivo. A validade mínima ignora lotes bloqueados na data do negócio.
+Aplicar sempre `PharmacyId` e `DeviceId` nos filtros. A pesquisa aceita nome, código e código de barras, usa `Take(limit)` com limite máximo 50 e devolve apenas produtos activos com saldo vendável positivo. O resultado inclui o número e a validade do primeiro lote FEFO. A selecção ignora lotes bloqueados na data do negócio.
 
 - [ ] **Step 4: Implementar transacção de confirmação**
 
