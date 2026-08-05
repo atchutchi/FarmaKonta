@@ -25,5 +25,6 @@ public enum Capability
     ViewPurchases = 21,
     ImportInventory = 22,
     AdjustStock = 23,
-    CompensateStock = 24
+    CompensateStock = 24,
+    ApplySaleDiscount = 25
 }

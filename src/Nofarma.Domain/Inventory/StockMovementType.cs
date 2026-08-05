@@ -11,5 +11,6 @@ public enum StockMovementType
     Damage = 7,
     Expiration = 8,
     SupplierReturn = 9,
-    Compensation = 10
+    Compensation = 10,
+    Sale = 11
 }

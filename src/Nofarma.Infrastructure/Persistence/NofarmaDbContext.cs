@@ -30,6 +30,22 @@ public sealed class NofarmaDbContext(DbContextOptions<NofarmaDbContext> options)
 
     public DbSet<CashCommandRecord> CashCommands => Set<CashCommandRecord>();
 
+    public DbSet<SaleRecord> Sales => Set<SaleRecord>();
+
+    public DbSet<SaleLineRecord> SaleLines => Set<SaleLineRecord>();
+
+    public DbSet<SalePaymentRecord> SalePayments => Set<SalePaymentRecord>();
+
+    public DbSet<SaleStockAllocationRecord> SaleStockAllocations => Set<SaleStockAllocationRecord>();
+
+    public DbSet<SuspendedSaleRecord> SuspendedSales => Set<SuspendedSaleRecord>();
+
+    public DbSet<SuspendedSaleLineRecord> SuspendedSaleLines => Set<SuspendedSaleLineRecord>();
+
+    public DbSet<ReceiptRecord> Receipts => Set<ReceiptRecord>();
+
+    public DbSet<SaleCommandRecord> SaleCommands => Set<SaleCommandRecord>();
+
     public DbSet<OutboxEventRecord> OutboxEvents => Set<OutboxEventRecord>();
 
     public DbSet<ProductCategoryRecord> ProductCategories => Set<ProductCategoryRecord>();
@@ -111,6 +127,25 @@ public sealed class NofarmaDbContext(DbContextOptions<NofarmaDbContext> options)
         if (hasCashCommandMutation)
         {
             throw new InvalidOperationException("Cash commands are append-only.");
+        }
+
+        EnsureAppendOnly<SaleRecord>("Sales are append-only.");
+        EnsureAppendOnly<SaleLineRecord>("Sale lines are append-only.");
+        EnsureAppendOnly<SalePaymentRecord>("Sale payments are append-only.");
+        EnsureAppendOnly<SaleStockAllocationRecord>("Sale stock allocations are append-only.");
+        EnsureAppendOnly<ReceiptRecord>("Receipts are append-only.");
+        EnsureAppendOnly<SaleCommandRecord>("Sale commands are append-only.");
+    }
+
+    private void EnsureAppendOnly<TRecord>(string message)
+        where TRecord : class
+    {
+        bool hasMutation = ChangeTracker
+            .Entries<TRecord>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted);
+        if (hasMutation)
+        {
+            throw new InvalidOperationException(message);
         }
     }
 }

@@ -105,3 +105,31 @@ Não ficaram diferenças P0, P1 ou P2. A ausência dos ícones da referência na
 A página foi aberta ao vivo numa sessão autenticada. O estado seleccionado de Licença permaneceu visível. A descrição completa quebrou linha sem corte nos dois tamanhos. Os botões de exportação e importação expõem nomes de automação claros. Os selectores nativos de guardar e abrir foram abertos e cancelados sem bloquear a página. O pedido exportado não contém vendas, stock nem credenciais.
 
 final result: passed
+
+## QA visual do POS local
+
+Fonte visual: `docs/design/previews/02-dashboard-sales-invoices-cash.png`, painel superior direito `2. PONTO DE VENDA`.
+
+Implementação: `src/Nofarma.Desktop/Views/SalesPage.xaml`, `src/Nofarma.Desktop/Views/SalesPage.xaml.cs` e `src/Nofarma.Desktop/Views/ReceiptPreviewDialog.xaml`.
+
+Estado inspeccionado: administrador autenticado, instalação sem licença, computador sem internet e carrinho vazio.
+
+Viewport inspeccionado: janela maximizada a 1536 por 816. Foi também observada uma janela menor, próxima de 1080 por 640.
+
+### Resultado observado
+
+A composição segue a fonte aprovada. A pesquisa e a tabela ocupam a área flexível à esquerda. O carrinho permanece fixo à direita com cabeçalho azul, total destacado e pagamento no rodapé. A barra de estado offline usa fundo amarelo e mensagem textual. A página reutiliza os tokens, tipografia e controlos nativos do NôFarma.
+
+Não existem produtos, montantes ou recibos fictícios. Os estados dependem da base local. Os ícones são da biblioteca WinUI e o logótipo do recibo usa o asset oficial existente.
+
+Na primeira inspeção foi encontrado um corte P2 no título do estado vazio do carrinho em janela menor. Foi adicionada quebra de linha. A correcção passou os testes de superfície e a compilação com zero avisos.
+
+### Interacções e acessibilidade
+
+A automação do Windows expôs nomes para pesquisa, resultados, carrinho, suspensão e pagamento. Os atalhos F2, F4, F6, F8 e Escape têm cobertura automatizada. As acções dinâmicas do carrinho recebem o nome do produto. Falta exercer todo o fluxo com produtos reais numa sessão QA licenciada.
+
+### Pendência
+
+A captura final da versão Release corrigida e a comparação conjunta com a fonte dependem do início de sessão manual. O cenário preenchido depende de uma base QA isolada com licença, produto, stock, Caixa e PIN descartáveis. O Gate 1 permanece aberto até essa prova.
+
+final result: blocked

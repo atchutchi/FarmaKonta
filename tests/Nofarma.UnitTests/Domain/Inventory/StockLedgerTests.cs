@@ -26,6 +26,7 @@ public sealed class StockLedgerTests
     [InlineData(StockMovementType.Damage)]
     [InlineData(StockMovementType.Expiration)]
     [InlineData(StockMovementType.SupplierReturn)]
+    [InlineData(StockMovementType.Sale)]
     public void OutgoingMovementTypesRequireNegativeQuantity(StockMovementType type)
     {
         StockMovement movement = StockLedger.CreateMovement(
@@ -108,6 +109,22 @@ public sealed class StockLedgerTests
         Assert.Throws<InsufficientStockException>(() => StockLedger.CreateMovement(
             CreateOperation(StockMovementType.Loss, -11, "Quebra durante transporte"),
             currentLotBalance: 10));
+    }
+
+    [Fact]
+    public void SaleMovementReducesTheLotBalance()
+    {
+        StockMovement movement = StockLedger.CreateMovement(
+            CreateOperation(
+                StockMovementType.Sale,
+                -3,
+                reason: null,
+                sourceDocumentId: EntityId.New(),
+                idempotencyKey: "sale:42:lot:1"),
+            currentLotBalance: 10);
+
+        Assert.Equal(7, movement.ResultingLotBalance);
+        Assert.Equal(StockMovementType.Sale, movement.Type);
     }
 
     [Fact]

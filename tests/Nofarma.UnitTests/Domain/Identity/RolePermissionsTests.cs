@@ -86,4 +86,16 @@ public sealed class RolePermissionsTests
         Assert.Contains(Capability.ConfigureFiscalSettings, permissions);
         Assert.Equal(Enum.GetValues<Capability>().Length, permissions.Count);
     }
+
+    [Theory]
+    [InlineData(UserRole.Administrator, true)]
+    [InlineData(UserRole.Manager, true)]
+    [InlineData(UserRole.Pharmacist, false)]
+    [InlineData(UserRole.Cashier, false)]
+    public void SaleDiscountRequiresAdministrativeRole(UserRole role, bool expected)
+    {
+        Assert.Equal(
+            expected,
+            RolePermissions.IsAllowed(role, Capability.ApplySaleDiscount));
+    }
 }

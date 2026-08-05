@@ -60,6 +60,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPurchaseStore, SqlitePurchaseStore>();
         services.AddSingleton<IInventoryImportStore, SqliteInventoryImportStore>();
         services.AddSingleton<ICashShiftStore, SqliteCashShiftStore>();
+        services.AddSingleton<ISaleStore, SqliteSaleStore>();
         services.AddSingleton<IInventoryFileReader, InventoryFileReader>();
         services.AddSingleton<IInventoryImportErrorWriter, OpenXmlInventoryImportErrorWriter>();
         services.AddSingleton<ILicenseStore, SqliteLicenseStore>();
@@ -97,6 +98,7 @@ public static class ServiceCollectionExtensions
         services.AddTransient<PurchaseService>();
         services.AddTransient<InventoryImportService>();
         services.AddTransient<CashShiftService>();
+        services.AddTransient<SaleService>();
         services.AddSingleton(provider =>
         {
             ICredentialHasher hasher = provider.GetRequiredService<ICredentialHasher>();
