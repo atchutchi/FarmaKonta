@@ -297,10 +297,10 @@ git commit -m "feat: add sale stock movement and discount permission"
 
 - Consumes: `AuthorizationService`, `ILicensedOperationPolicy`, `IUtcClock`, `FefoAllocator`, `CashShift` e os tipos da Task 1.
 - Produces: `SaleService.SearchProductsAsync`, `SaleService.GetSuspendedAsync`, `SaleService.SuspendAsync`, `SaleService.DeleteSuspendedAsync`, `SaleService.CompleteAsync` e `SaleService.GetReceiptAsync`.
-- `CompleteSaleRequest(IReadOnlyCollection<CompleteSaleLineRequest> Lines, long TotalDiscountXof, EntityId? TotalDiscountAuthorizedByUserId, IReadOnlyCollection<SalePaymentRequest> Payments, string IdempotencyKey)`.
-- `CompleteSaleLineRequest(EntityId ProductId, EntityId PackageId, long QuantityPackages, long DiscountXof, EntityId? DiscountAuthorizedByUserId)`.
+- `CompleteSaleRequest(IReadOnlyCollection<CompleteSaleLineRequest> Lines, long TotalDiscountXof, IReadOnlyCollection<SalePaymentRequest> Payments, string IdempotencyKey)`.
+- `CompleteSaleLineRequest(EntityId ProductId, EntityId PackageId, long QuantityPackages, long DiscountXof)`.
 - `SalePaymentRequest(PaymentMethod Method, long AmountXof, string? Reference)`.
-- `SaleActorContext(EntityId PharmacyId, string PharmacyName, EntityId DeviceId, EntityId ActorUserId, string ActorDisplayName)`.
+- `SaleActorContext(EntityId PharmacyId, string PharmacyName, string TimeZoneId, EntityId DeviceId, EntityId ActorUserId, string ActorDisplayName)`.
 - `SaleProductResult(EntityId ProductId, EntityId PackageId, string Code, string Name, string PackageName, long PackageFactor, long AvailableQuantityBase, long SalePriceXof, string? EarliestLotNumber, DateOnly? EarliestExpiry, bool RequiresPrescription)`.
 - `SaleSummary(EntityId Id, string Number, long TotalXof, long PaidXof, long ChangeXof, UtcInstant CompletedAtUtc, EntityId ReceiptId)`.
 - `SuspendedSaleSummary(EntityId Id, string? Name, int LineCount, long EstimatedTotalXof, UtcInstant SuspendedAtUtc)`.
@@ -313,7 +313,7 @@ git commit -m "feat: add sale stock movement and discount permission"
 - `SaleCommandEnvelope(string IdempotencyKey, string RequestFingerprint)`.
 - `SaleCommandResult(string RequestFingerprint, SaleSummary Result)`.
 - `SaleOutboxEvent(EntityId Id, EntityId PharmacyId, EntityId DeviceId, string EventType, EntityId AggregateId, string PayloadJson, UtcInstant OccurredAtUtc)`.
-- `SaleCompletion(SaleActorContext Context, Sale Sale, Receipt Receipt, IReadOnlyList<SaleStockAllocation> Allocations, StoredCashShift Shift, CashMovement? CashMovement, long ExpectedCashShiftVersion, SaleCommandEnvelope Command, AuditEvent Audit, SaleOutboxEvent Outbox)`.
+- `SaleCompletion(SaleActorContext Context, Sale Sale, Receipt Receipt, IReadOnlyList<SaleStockAllocation> Allocations, IReadOnlyList<StockMovement> StockMovements, StoredCashShift Shift, CashMovement? CashMovement, long ExpectedCashShiftVersion, SaleCommandEnvelope Command, AuditEvent Audit, SaleOutboxEvent Outbox)`.
 - `ISaleStore.CompleteAsync(SaleCompletion completion, CancellationToken cancellationToken)` devolve `SaleSummary`.
 
 - [ ] **Step 1: Escrever testes de autorização e pré-condições**
@@ -328,6 +328,7 @@ Turno aberto por outro utilizador no mesmo dispositivo recebe SalesValidationExc
 Carrinho vazio recebe SalesValidationException
 Desconto de linha sem ApplySaleDiscount recebe AuthorizationException
 Desconto total sem ApplySaleDiscount recebe AuthorizationException
+O serviço atribui `actor.UserId` como autorizador e nunca aceita um identificador de autorizador enviado pela interface
 ```
 
 - [ ] **Step 2: Executar os testes e confirmar falha de compilação**
@@ -549,7 +550,7 @@ Devolver duplicado compatível ou lançar conflito
 Actualizar cada StockLot com condição Id + PharmacyId + RowVersion + AvailableQuantityBase esperado
 Inserir Sale e linhas
 Inserir pagamentos e alocações
-Inserir StockMovements com chaves sale:{saleId}:lot:{lotId}
+Inserir StockMovements com chaves sale:{saleId}:line:{saleLineId}:lot:{lotId}
 Actualizar CashShift por RowVersion quando existe componente em dinheiro
 Inserir CashMovement com SourceSaleId
 Inserir Receipt
