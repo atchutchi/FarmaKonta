@@ -30,7 +30,8 @@ public static class RolePermissions
             Capability.ViewPurchases,
             Capability.ImportInventory,
             Capability.AdjustStock,
-            Capability.CompensateStock
+            Capability.CompensateStock,
+            Capability.ApplySaleDiscount
         }.ToFrozenSet();
 
     private static readonly FrozenDictionary<UserRole, FrozenSet<Capability>> Matrix =
@@ -54,7 +55,8 @@ public static class RolePermissions
                 Capability.ViewAudit,
                 Capability.ManageUsers,
                 Capability.ViewSuppliers,
-                Capability.ViewPurchases),
+                Capability.ViewPurchases,
+                Capability.ApplySaleDiscount),
             [UserRole.Pharmacist] = Set(
                 Capability.SignIn,
                 Capability.LockOwnSession,

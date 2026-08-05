@@ -18,7 +18,8 @@ public static class StockLedger
         StockMovementType.Loss,
         StockMovementType.Damage,
         StockMovementType.Expiration,
-        StockMovementType.SupplierReturn
+        StockMovementType.SupplierReturn,
+        StockMovementType.Sale
     ];
 
     private static readonly HashSet<StockMovementType> ReasonRequiredTypes =
